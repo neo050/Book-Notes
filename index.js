@@ -5,8 +5,7 @@ import bodyParser from "body-parser";
 import  pg from "pg";
 import axios from "axios";
 const app = express();
-const port = 3001;
-
+const PORT = process.env.PORT || 3001;
 app.use(bodyParser.urlencoded({ extended: true }));
 
 
@@ -22,13 +21,14 @@ app.use('/js', express.static(
   path.join(__dirname, 'node_modules/bootstrap/dist/js')
 ))
 
+
 const db = new pg.Client({
-  user: "postgres",
-  host: "localhost",
-  database: "books",
-  password: "neoray123",
-  port: 9977,
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false   // required by Render’s free Postgres
+  }
 });
+
 db.connect();
 
 
@@ -164,7 +164,7 @@ const id = parseInt(req.query.id, 10);
 
 });
 
-app.listen(port,()=>{
+app.listen(PORT,()=>{
       console.log(`Server running on port ${port}`);
 
 });
