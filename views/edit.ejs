@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="/css/bootstrap.min.css">
+  <!-- (optional) your own stylesheet -->
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+
+<div class="box">
+    <% if(locals.book){%>
+    
+        
+
+                      <form action="/edit" method="post" class="m-2">
+                                <input class ="input" name="id" value="<%= book.id%>" autocomplete="off"
+                                autofocus="true" hidden="true" />
+
+
+                            <div class="col-md-6 mt-4 xr-4">
+                                    <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm h-md-250 position-relative"> 
+                                        <div class="col p-4 d-flex flex-column position-static"> 
+                                            <h3 class="mb-0"> <%=  book.title  %></h3> 
+                                            <strong class="d-inline-block mb-2 text-primary-emphasis"> Author's name <%= book.author_name %></strong> 
+                                            <div class="mb-1 text-body-secondary"> <strong>finished reading at </strong> <input class="input mb-2" type="date" name="end_date" value="<%= book.end_date %>" autocomplete="off"
+                                                         autofocus="true"  /><strong>, I rate this book </strong> <input class="input" type="number" name="rating" value="<%= book.rating %>" autocomplete="off"
+                                                         autofocus="true"  /><strong>/10</strong>
+                                                        
+                                            </div > 
+
+
+                            
+                                          <div class="mb-3">
+                                                <label for="introduction" class="form-label"><strong>Introduction</strong></label>
+                                                <textarea
+                                                    id="introduction"
+                                                    name="introduction"
+                                                    class="form-control"
+                                                    rows="4"
+                                                ><%= book.introduction %></textarea>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <label for="notes" class="form-label"> <strong> Notes</strong></label>
+                                                <textarea
+                                                    id="notes"
+                                                    name="notes"
+                                                    class="form-control"
+                                                    rows="6"
+                                                ><%= book.notes %></textarea>
+                                           </div>
+                                            
+                                            
+                                            
+                                        </div> 
+                                            <div class="col-auto  d-lg-block rounded-start p-2 m-2">
+                                            <img
+                                                src="https://covers.openlibrary.org/b/id/<%- book.cover_i %>-L.jpg"
+                                                class="rounded-start"
+                                                width="200"
+                                                height="250"
+                                                alt="Book cover for <%- book.title %>"
+                                                loading="lazy"
+                                            />
+                                            </div>
+
+                                    </div> 
+                             </div>
+
+
+                            <button type="submit" class="btn btn-success" >
+
+                                    save
+
+                            </button> 
+
+                        </form>
+  <% } %>
+
+
+      
+  </div>
+
+  <!-- Bootstrap Bundle (includes Popper) -->
+  <script src="/js/bootstrap.bundle.min.js"></script>
+  <!-- (optional) your own scripts <script src="/js/main.js"></script>-->
+  
+</body>
+</html>

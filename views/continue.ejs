@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="/css/bootstrap.min.css">
+  <!-- (optional) your own stylesheet -->
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+
+<div class="box">
+    <% if( locals.book){%>
+        <div class="col-md-6 mt-4 mx-4">
+          <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm h-md-250 position-relative"> 
+              <div class="col p-4 d-flex flex-column position-static"> 
+                 <h3 class="mb-0"> <%=  book.title  %></h3> 
+                <strong class="d-inline-block mb-2 text-primary-emphasis"> Author's name <%= book.author_name %></strong> 
+                <div class="mb-1 text-body-secondary"> finished reading at <%= book.end_date %>, I rate this book <%= book.rating %>/10
+
+                </div > 
+
+
+                  <div class="mb-3">
+                        <strong>Introduction</strong> <br>
+                           
+                            <%= book.introduction %>
+                    </div>
+
+                    <div class="mb-3">
+                         <strong> Notes</strong><br>
+                       <%= book.notes %>
+                    </div>
+                  
+                    <div class="d-inline-flex p-2 m-2">
+
+                          <form action="/" method="get" class="m-2" >
+                                <button type="submit" class="btn btn-success" >
+
+                                            Finished reading
+
+                                </button> 
+                        </form>
+
+                        <form action="/edit" method="get" class="m-2">
+                            <input class ="input" name="id" value="<%= book.id%>" autocomplete="off"
+                            autofocus="true" hidden="true" />
+                            <button type="submit" class="btn btn-secondary" >
+
+                                edit
+
+                            </button> 
+
+                        </form>
+
+                        <form action="/delete" method="post" class="m-2">
+                            <input class ="input" name="id" value="<%= book.id%>" autocomplete="off"
+                            autofocus="true" hidden="true" />
+                            <button type="submit" class="btn btn-danger" >
+
+                            delete
+
+                            </button> 
+
+                        </form>
+
+                  </div>
+              </div> 
+                <div class="col-auto  d-lg-block rounded-start p-2 m-2">
+                  <img
+                    src="https://covers.openlibrary.org/b/id/<%- book.cover_i %>-L.jpg"
+                    class="rounded-start"
+                    width="200"
+                    height="250"
+                    alt="Book cover for <%- book.title %>"
+                    loading="lazy"
+                  />
+                </div>
+
+          </div> 
+        </div>
+  <% } %>
+
+
+      <div class="buttons">
+      
+      </div>
+  </div>
+
+  <!-- Bootstrap Bundle (includes Popper) -->
+  <script src="/js/bootstrap.bundle.min.js"></script>
+  <!-- (optional) your own scripts <script src="/js/main.js"></script>-->
+  
+</body>
+</html>

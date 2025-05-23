@@ -10,7 +10,80 @@
   <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
-  <%- body %>
+
+<div class="box">
+    <% for(let item of books){%>
+        <div class="col-md-6 mt-4 mx-4">
+          <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm h-md-250 position-relative"> 
+              <div class="col p-4 d-flex flex-column position-static"> 
+                 <h3 class="mb-0"> <%=  item.title  %></h3> 
+                <strong class="d-inline-block mb-2 text-primary-emphasis"> Author's name <%= item.author_name %></strong> 
+                <div class="mb-1 text-body-secondary"> finished reading at <%= item.end_date %>, I rate this book <%= item.rating %>/10
+
+                </div > 
+
+
+                  <p class="card-text mb-auto"><%= item.introduction %> </p> 
+                  
+                    <div class="d-inline-flex p-2 m-2">
+                     <form action="/continue" method="get" class="m-2">
+                        <input type="hidden" name="id" value="<%= item.id %>" />
+                        <button
+                          type="submit"
+                         class="btn btn-info"
+                         style="--bs-btn-padding-y: .25rem; --bs-btn-padding-x: .5rem; --bs-btn-font-size: .75rem;">
+                        
+                          Continue reading
+                        </button>
+                      </form>
+
+
+                      <form action="/edit" method="get" class="m-2">
+                        <input class ="input" name="id" value="<%= item.id%>" autocomplete="off"
+                          autofocus="true" hidden="true" />
+                        <button type="submit" class="btn btn-secondary" >
+
+                              edit
+
+                        </button> 
+
+                      </form>
+
+                      <form action="/delete" method="post" class="m-2">
+                        <input class ="input" name="id" value="<%= item.id%>" autocomplete="off"
+                          autofocus="true" hidden="true" />
+                        <button type="submit" class="btn btn-danger" >
+
+                          delete
+
+                        </button> 
+
+                      </form>
+
+                  </div>
+              </div> 
+                <div class="col-auto  d-lg-block rounded-start p-2 m-2">
+                  <img
+                    src="https://covers.openlibrary.org/b/id/<%- item.cover_i %>-L.jpg"
+                    class="rounded-start"
+                    width="200"
+                    height="250"
+                    alt="Book cover for <%- item.title %>"
+                    loading="lazy"
+                  />
+                </div>
+
+          </div> 
+        </div>
+  <% } %>
+
+
+      <div class="col-md-6 mt-4 mx-4">
+        <form action="add" method="get">
+          <button type="submit" class="btn btn-primary">Add new book</button>
+        </form>
+      </div>
+  </div>
 
   <!-- Bootstrap Bundle (includes Popper) -->
   <script src="/js/bootstrap.bundle.min.js"></script>
