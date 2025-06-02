@@ -95,18 +95,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')));
 app.use('/js',  express.static(path.join(__dirname, 'node_modules/bootstrap/dist/js')));
 
-await db.query(`
-  CREATE TABLE IF NOT EXISTS my_books (
-    id            SERIAL PRIMARY KEY,
-    title         VARCHAR(100)  NOT NULL,
-    introduction  VARCHAR(1000) NOT NULL,
-    notes         VARCHAR(10000) NOT NULL,
-    author_name   VARCHAR(100)  NOT NULL,
-    rating        SMALLINT      NOT NULL,
-    end_date      DATE          NOT NULL,
-    cover_i       INT           NOT NULL
-  );
-`);
+
+
 
 await db.query(`
   CREATE TABLE IF NOT EXISTS users (
@@ -118,6 +108,23 @@ await db.query(`
  
 );
 `);
+
+
+await db.query(`
+CREATE TABLE IF NOT EXISTS my_books (
+  id           SERIAL PRIMARY KEY,
+  user_id      INT REFERENCES users(id) ON DELETE CASCADE,
+  title        VARCHAR(100)  NOT NULL,
+  introduction VARCHAR(1000) NOT NULL,
+  notes        VARCHAR(10000) NOT NULL,
+  author_name  VARCHAR(100)  NOT NULL,
+  rating       SMALLINT      NOT NULL,
+  end_date     DATE          NOT NULL,
+  cover_i      INT           NOT NULL
+);
+`);
+
+
 
 /* ───────────────────────────
    3. ROUTES
