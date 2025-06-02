@@ -17,7 +17,7 @@ import { Strategy } from "passport-local";
 import session from "express-session";
 import env from "dotenv";
 import GoogleStrategy from "passport-google-oauth2"
-
+import pgSession from 'connect-pg-simple';
 /* ───────────────────────────
    1. APP & STATIC FILES
 ─────────────────────────── */
@@ -28,9 +28,10 @@ env.config();
 
 app.use(
   session({
+    store: new (pgSession(session))({ pool: db }),
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
   })
 );
 
