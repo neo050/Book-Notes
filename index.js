@@ -43,7 +43,7 @@ await db.connect();
 
 app.use(
   session({
-    store: new (pgSession(session))({ pool: db }),
+    store: new (pgSession(session))({ pool: db, createTableIfMissing: true }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
