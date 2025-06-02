@@ -26,6 +26,21 @@ const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
 env.config();
 
+
+/* ───────────────────────────
+   2. DATABASE
+─────────────────────────── */
+const LOCAL_DB      = 'postgres://postgres:neoray123@localhost:9977/books';
+const connectionURL = process.env.DATABASE_URL || LOCAL_DB;
+
+const db = new pg.Client({
+  connectionString: connectionURL,
+  ssl: connectionURL.includes('render.com')
+       ? { rejectUnauthorized: false }   // Render external URL
+       : false                           // no SSL on localhost
+});
+await db.connect();
+
 app.use(
   session({
     store: new (pgSession(session))({ pool: db }),
@@ -79,21 +94,6 @@ app.use((err, req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')));
 app.use('/js',  express.static(path.join(__dirname, 'node_modules/bootstrap/dist/js')));
-
-/* ───────────────────────────
-   2. DATABASE
-─────────────────────────── */
-const LOCAL_DB      = 'postgres://postgres:neoray123@localhost:9977/books';
-const connectionURL = process.env.DATABASE_URL || LOCAL_DB;
-
-const db = new pg.Client({
-  connectionString: connectionURL,
-  ssl: connectionURL.includes('render.com')
-       ? { rejectUnauthorized: false }   // Render external URL
-       : false                           // no SSL on localhost
-});
-
-await db.connect();
 
 await db.query(`
   CREATE TABLE IF NOT EXISTS my_books (
