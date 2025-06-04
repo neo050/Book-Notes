@@ -86,7 +86,16 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": ["'self'", 'data:', 'https://covers.openlibrary.org'],
+      },
+    },
+  })
+);
 
 app.use(csurf());
 app.use((req, res, next) => {
