@@ -328,7 +328,10 @@ app.get('/edit', async (req, res) => {
    if (req.isAuthenticated()) {
     try {
       const id   = parseInt(req.query.id, 10);
-      const book = (await db.query('SELECT * FROM my_books WHERE id=$1', [id])).rows[0];
+      const book = (await db.query(
+        'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
+        [id, req.user.id]
+      )).rows[0];
       if (!book) return res.status(404).send('Not found');
       book.end_date = new Date(book.end_date).toISOString().slice(0, 10);
       res.render('edit.ejs', { book });
@@ -349,8 +352,8 @@ app.post('/edit', async (req, res) => {
     const { id, introduction, notes, rating, end_date } = req.body;
     try {
       await db.query(
-        'UPDATE my_books SET introduction=$1, notes=$2, rating=$3, end_date=$4 WHERE id=$5',
-        [introduction, notes, rating, end_date, id]
+        'UPDATE my_books SET introduction=$1, notes=$2, rating=$3, end_date=$4 WHERE id=$5 AND user_id=$6',
+        [introduction, notes, rating, end_date, id, req.user.id]
       );
       res.redirect('/books');
     } catch (err) {
@@ -367,7 +370,10 @@ app.post('/edit', async (req, res) => {
 app.post('/delete', async (req, res) => {
   if (req.isAuthenticated()) {
     try {
-      await db.query('DELETE FROM my_books WHERE id=$1', [req.body.id]);
+      await db.query(
+        'DELETE FROM my_books WHERE id=$1 AND user_id=$2',
+        [req.body.id, req.user.id]
+      );
       res.redirect('/books');
     } catch (err) {
       console.error('Delete failed:', err);
@@ -386,7 +392,10 @@ app.get('/continue', async (req, res) => {
     {
       try {
         const id   = parseInt(req.query.id, 10);
-        const book = (await db.query('SELECT * FROM my_books WHERE id=$1', [id])).rows[0];
+        const book = (await db.query(
+          'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
+          [id, req.user.id]
+        )).rows[0];
         if (!book) return res.status(404).send('Not found');
         book.end_date = new Date(book.end_date).toISOString().slice(0, 10);
         res.render('continue.ejs', { book });
