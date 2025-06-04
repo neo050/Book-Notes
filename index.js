@@ -19,7 +19,6 @@ import bcrypt from "bcrypt";
 import passport from "passport";
 import { Strategy } from "passport-local";
 import session from "express-session";
-import env from "dotenv";
 import GoogleStrategy from "passport-google-oauth2"
 import pgSession from 'connect-pg-simple';
 /* ───────────────────────────
@@ -29,7 +28,6 @@ const app  = express();
 app.set('trust proxy', 1); 
 const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
-env.config();
 
 
 /* ───────────────────────────
@@ -88,7 +86,14 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'img-src': ['self', 'data:', 'https://covers.openlibrary.org']
+    }
+  }
+}));
 
 app.use(csurf());
 app.use((req, res, next) => {
@@ -110,17 +115,6 @@ app.use((req, res, next) => {
 
 
 
-/* ERROR HANDLER – catches everything
-   and always sends a 500 JSON payload */
-app.use((err, req, res, next) => {
-  console.error('UNCAUGHT ROUTE ERROR:', err);
-  if (res.headersSent) return next(err);
-  if (process.env.NODE_ENV === 'production') {
-    res.status(500).send('Internal Server Error');
-  } else {
-    res.status(500).json({ error: String(err) });
-  }
-});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')));
@@ -328,7 +322,7 @@ app.get('/edit', async (req, res) => {
    if (req.isAuthenticated()) {
     try {
       const id   = parseInt(req.query.id, 10);
-      const book = (await db.query('SELECT * FROM my_books WHERE id=$1', [id])).rows[0];
+      const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
       if (!book) return res.status(404).send('Not found');
       book.end_date = new Date(book.end_date).toISOString().slice(0, 10);
       res.render('edit.ejs', { book });
@@ -349,8 +343,8 @@ app.post('/edit', async (req, res) => {
     const { id, introduction, notes, rating, end_date } = req.body;
     try {
       await db.query(
-        'UPDATE my_books SET introduction=$1, notes=$2, rating=$3, end_date=$4 WHERE id=$5',
-        [introduction, notes, rating, end_date, id]
+        'UPDATE my_books SET introduction=$1, notes=$2, rating=$3, end_date=$4 WHERE id=$5 AND user_id=$6',
+        [introduction, notes, rating, end_date, id, req.user.id]
       );
       res.redirect('/books');
     } catch (err) {
@@ -367,7 +361,7 @@ app.post('/edit', async (req, res) => {
 app.post('/delete', async (req, res) => {
   if (req.isAuthenticated()) {
     try {
-      await db.query('DELETE FROM my_books WHERE id=$1', [req.body.id]);
+      await db.query('DELETE FROM my_books WHERE id=$1 AND user_id=$2', [req.body.id, req.user.id]);
       res.redirect('/books');
     } catch (err) {
       console.error('Delete failed:', err);
@@ -386,7 +380,7 @@ app.get('/continue', async (req, res) => {
     {
       try {
         const id   = parseInt(req.query.id, 10);
-        const book = (await db.query('SELECT * FROM my_books WHERE id=$1', [id])).rows[0];
+        const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
         if (!book) return res.status(404).send('Not found');
         book.end_date = new Date(book.end_date).toISOString().slice(0, 10);
         res.render('continue.ejs', { book });
@@ -448,7 +442,7 @@ passport.use(
   {
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL:"https://book-notes-o5f0.onrender.com/auth/google/books",
+    callbackURL: process.env.GOOGLE_CALLBACK_URL || 'https://book-notes-o5f0.onrender.com/auth/google/books',
     userProfileURL:"https://www.googleapis.com/oauth2/v3/userinfo",
 
 
@@ -483,4 +477,16 @@ passport.deserializeUser((user, cb) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+/* ERROR HANDLER – catches everything
+   and always sends a 500 JSON payload */
+app.use((err, req, res, next) => {
+  console.error('UNCAUGHT ROUTE ERROR:', err);
+  if (res.headersSent) return next(err);
+  if (process.env.NODE_ENV == 'production') {
+    res.status(500).send('Internal Server Error');
+  } else {
+    res.status(500).json({ error: String(err) });
+  }
 });
