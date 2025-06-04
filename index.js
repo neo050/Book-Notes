@@ -108,17 +108,6 @@ app.use((req, res, next) => {
 
 
 
-/* ERROR HANDLER – catches everything
-   and always sends a 500 JSON payload */
-app.use((err, req, res, next) => {
-  console.error('UNCAUGHT ROUTE ERROR:', err);
-  if (res.headersSent) return next(err);
-  if (process.env.NODE_ENV === 'production') {
-    res.status(500).send('Internal Server Error');
-  } else {
-    res.status(500).json({ error: String(err) });
-  }
-});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')));
@@ -487,6 +476,18 @@ passport.deserializeUser((user, cb) => {
   cb(null, user);
 });
 
+
+/* ERROR HANDLER – catches everything
+   and always sends a 500 JSON payload */
+app.use((err, req, res, next) => {
+  console.error("UNCAUGHT ROUTE ERROR:", err);
+  if (res.headersSent) return next(err);
+  if (process.env.NODE_ENV === "production") {
+    res.status(500).send("Internal Server Error");
+  } else {
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
