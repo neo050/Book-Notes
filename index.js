@@ -22,6 +22,7 @@ import pgSession from 'connect-pg-simple';
    1. APP & STATIC FILES
 ─────────────────────────── */
 const app  = express();
+app.set('trust proxy', 1); 
 const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
 env.config();
@@ -41,7 +42,7 @@ const db = new pg.Client({
 });
 await db.connect();
 const onRender = process.env.DATABASE_URL?.includes('render.com');
-app.set('trust proxy', 1); 
+
 app.use(
   session({
     store: new (pgSession(session))({
