@@ -41,7 +41,7 @@ const db = new pg.Client({
 });
 await db.connect();
 const onRender = process.env.DATABASE_URL?.includes('render.com');
-
+app.set('trust proxy', 1); 
 app.use(
   session({
     store: new (pgSession(session))({
@@ -51,7 +51,7 @@ app.use(
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-
+    proxy: true,                    // let express-session respect req.secure
     // ▸ Cookie security flags
     cookie: {
       httpOnly: true,               // Disallow JavaScript access to the cookie
