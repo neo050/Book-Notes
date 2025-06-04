@@ -1,3 +1,11 @@
+
+CREATE TABLE IF NOT EXISTS users (
+  id        SERIAL PRIMARY KEY,
+  email     VARCHAR(100) UNIQUE NOT NULL,
+  password  VARCHAR(100)
+);
+
+
  CREATE TABLE IF NOT EXISTS users (
   id           SERIAL PRIMARY KEY,
  
@@ -16,4 +24,6 @@ CREATE TABLE IF NOT EXISTS my_books (
   rating       SMALLINT      NOT NULL,
   end_date     DATE          NOT NULL,
   cover_i      INT           NOT NULL
+);
+
 );

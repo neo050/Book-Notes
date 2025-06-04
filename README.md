@@ -65,6 +65,9 @@ SESSION_SECRET=change‑me‑in‑prod
 # OAuth (Google Cloud Console)
 GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=xxxxxxxx
+GOOGLE_CALLBACK_URL=https://book-notes-o5f0.onrender.com/auth/google/books
+# Optional: restrict Google sign-in to one domain
+ALLOWED_GOOGLE_DOMAIN=
 
 
 # Local PostgreSQL

@@ -86,6 +86,16 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'img-src': ['self', 'data:', 'https://covers.openlibrary.org']
+    }
+  }
+}));
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -96,6 +106,7 @@ app.use(
     },
   })
 );
+
 
 app.use(csurf());
 app.use((req, res, next) => {
@@ -324,6 +335,8 @@ app.get('/edit', async (req, res) => {
    if (req.isAuthenticated()) {
     try {
       const id   = parseInt(req.query.id, 10);
+      const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
+
       const book = (await db.query(
         'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
         [id, req.user.id]
@@ -366,6 +379,7 @@ app.post('/edit', async (req, res) => {
 app.post('/delete', async (req, res) => {
   if (req.isAuthenticated()) {
     try {
+      await db.query('DELETE FROM my_books WHERE id=$1 AND user_id=$2', [req.body.id, req.user.id]);
       await db.query(
         'DELETE FROM my_books WHERE id=$1 AND user_id=$2',
         [req.body.id, req.user.id]
@@ -388,6 +402,7 @@ app.get('/continue', async (req, res) => {
     {
       try {
         const id   = parseInt(req.query.id, 10);
+        const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
         const book = (await db.query(
           'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
           [id, req.user.id]
@@ -453,6 +468,7 @@ passport.use(
   {
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.GOOGLE_CALLBACK_URL || 'https://book-notes-o5f0.onrender.com/auth/google/books',
     callbackURL: process.env.GOOGLE_CALLBACK_URL ||
                  "https://book-notes-o5f0.onrender.com/auth/google/books",
     userProfileURL:"https://www.googleapis.com/oauth2/v3/userinfo",
@@ -501,4 +517,16 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+/* ERROR HANDLER – catches everything
+   and always sends a 500 JSON payload */
+app.use((err, req, res, next) => {
+  console.error('UNCAUGHT ROUTE ERROR:', err);
+  if (res.headersSent) return next(err);
+  if (process.env.NODE_ENV == 'production') {
+    res.status(500).send('Internal Server Error');
+  } else {
+    res.status(500).json({ error: String(err) });
+  }
 });
