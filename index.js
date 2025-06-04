@@ -40,15 +40,28 @@ const db = new pg.Client({
        : false                           // no SSL on localhost
 });
 await db.connect();
+const onRender = process.env.DATABASE_URL?.includes('render.com');
 
 app.use(
   session({
-    store: new (pgSession(session))({ pool: db, createTableIfMissing: true }),
+    store: new (pgSession(session))({
+      pool: db,
+      createTableIfMissing: true,   // Automatically create "session" table if absent
+    }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-  })
+
+    // ▸ Cookie security flags
+    cookie: {
+      httpOnly: true,               // Disallow JavaScript access to the cookie
+      sameSite: 'lax',              // Mitigates CSRF; still works with OAuth redirects
+      secure: onRender,             // Transmit only via HTTPS on Render
+      maxAge: 1000 * 60 * 60 * 24,  // 24 hours in milliseconds
+    },
+  }),
 );
+
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,7 +87,6 @@ app.use((req, res, next) => {
 /* ───────────────────────────────
    HTTPS ENFORCEMENT on Render
 ──────────────────────────────── */
-const onRender = process.env.DATABASE_URL?.includes('render.com');
 app.use((req, res, next) => {
   // if on Render and not HTTPS, require upgrade
   if (onRender && req.headers['x-forwarded-proto'] !== 'https') {
@@ -102,7 +114,7 @@ await db.query(`
   CREATE TABLE IF NOT EXISTS users (
   id           SERIAL PRIMARY KEY,
  
-  email        VARCHAR(100)  NOT NULL,
+  email        VARCHAR(100) UNIQUE  NOT NULL,
 
   password  VARCHAR(100)  NOT NULL
  
