@@ -50,6 +50,7 @@
                       </form>
 
                       <form action="/delete" method="post" class="m-2">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                         <input class ="input" name="id" value="<%= item.id%>" autocomplete="off"
                           autofocus="true" hidden="true" />
                         <button type="submit" class="btn btn-danger" >
