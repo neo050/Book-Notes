@@ -17,6 +17,7 @@
         <!--  { book_name, book_name, rating, introduction, notes, end_date } -->
 
     <form action="/add" method="post" class="m-2">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <div class="col-md-6 mt-4 xr-4">
                                     <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm h-md-250 position-relative"> 
                                         <div class="col p-4 d-flex flex-column position-static"> 

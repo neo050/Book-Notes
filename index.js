@@ -10,6 +10,10 @@ import { fileURLToPath } from 'url';
 import bodyParser from 'body-parser';
 import pg from 'pg';
 import axios from 'axios';
+import helmet from 'helmet';
+import csurf from 'csurf';
+import rateLimit from 'express-rate-limit';
+import { isStrongPassword } from './utils.js';
 
 import bcrypt from "bcrypt";
 import passport from "passport";
@@ -46,9 +50,11 @@ const onRender = process.env.DATABASE_URL?.includes('render.com');
    HTTPS ENFORCEMENT on Render
 ──────────────────────────────── */
 app.use((req, res, next) => {
-  // if on Render and not HTTPS, require upgrade
+  // if on Render and not HTTPS, redirect to HTTPS
   if (onRender && req.headers['x-forwarded-proto'] !== 'https') {
-    return res.status(426).send('Upgrade Required');
+    const host = req.headers.host;
+    const url  = req.originalUrl || req.url;
+    return res.redirect(301, 'https://' + host + url);
   }
   next();
 });
@@ -56,18 +62,19 @@ app.use(
   session({
     store: new (pgSession(session))({
       pool: db,
-      createTableIfMissing: true,   // Automatically create "session" table if absent
+      createTableIfMissing: true,
+      ttl: 24 * 60 * 60,
+      pruneSessionInterval: 24 * 60 * 60,
     }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    proxy: true,                    // let express-session respect req.secure
-    // ▸ Cookie security flags
+    proxy: true,
     cookie: {
-      httpOnly: true,               // Disallow JavaScript access to the cookie
-      sameSite: 'lax',              // Mitigates CSRF; still works with OAuth redirects
-      secure: 'auto',             // Transmit only via HTTPS on Render
-      maxAge: 1000 * 60 * 60 * 24,  // 24 hours in milliseconds
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: onRender,
+      maxAge: 86400000,
     },
   }),
 );
@@ -81,6 +88,13 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(helmet());
+
+app.use(csurf());
+app.use((req, res, next) => {
+  res.locals.csrfToken = req.csrfToken();
+  next();
+});
 
 
 app.use(passport.initialize());
@@ -101,7 +115,11 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   console.error('UNCAUGHT ROUTE ERROR:', err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: String(err) });
+  if (process.env.NODE_ENV === 'production') {
+    res.status(500).send('Internal Server Error');
+  } else {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -117,7 +135,7 @@ await db.query(`
  
   email        VARCHAR(100) UNIQUE  NOT NULL,
 
-  password  VARCHAR(100)  NOT NULL
+  password  VARCHAR(100)
  
 );
 `);
@@ -242,13 +260,26 @@ app.post('/add', async (req, res) => {
   }
 });
 
-app.post(
-  "/login",
-  passport.authenticate("local", {
-    successRedirect: "/books",
-    failureRedirect: "/login",
-  })
-);
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/login', loginLimiter, (req, res, next) => {
+  passport.authenticate('local', (err, user) => {
+    if (err) return next(err);
+    if (!user) return res.redirect('/login');
+    req.session.regenerate((err2) => {
+      if (err2) return next(err2);
+      req.login(user, (err3) => {
+        if (err3) return next(err3);
+        res.redirect('/books');
+      });
+    });
+  })(req, res, next);
+});
 
 
 
@@ -262,8 +293,11 @@ app.post("/register", async (req, res) => {
     ]);
 
     if (checkResult.rows.length > 0) {
-      req.redirect("/login");
+      return res.redirect("/login");
     } else {
+      if (!isStrongPassword(password)) {
+        return res.status(400).send('Password must be at least 8 characters and contain letters and numbers');
+      }
       bcrypt.hash(password, saltRounds, async (err, hash) => {
         if (err) {
           console.error("Error hashing password:", err);
@@ -273,9 +307,12 @@ app.post("/register", async (req, res) => {
             [email, hash]
           );
           const user = result.rows[0];
-          req.login(user, (err) => {
-            console.log("success");
-            res.redirect("/books");
+          req.session.regenerate((err2) => {
+            if (err2) return res.status(500).send('Session error');
+            req.login(user, (err3) => {
+              if (err3) return res.status(500).send('Login error');
+              res.redirect("/books");
+            });
           });
         }
       });
@@ -380,6 +417,7 @@ passport.use("local",
       if (result.rows.length > 0) {
         const user = result.rows[0];
         const storedHashedPassword = user.password;
+        if (!storedHashedPassword) return cb(null, false);
         bcrypt.compare(password, storedHashedPassword, (err, valid) => {
           if (err) {
             //Error with password check
@@ -414,25 +452,22 @@ passport.use(
     userProfileURL:"https://www.googleapis.com/oauth2/v3/userinfo",
 
 
-  }, async(accessToken,refreshToken,profiler,cb)=>
-  {
-    console.log(profiler);
-    try
-    {
-        const result = await db.query("SELECT * FROM users WHERE email = $1", [profiler.email]);
-        if(result.rows.length === 0)
-        {
-          const newUser = await db.query("INSERT INTO users (email, password) VALUES ($1,$2)",[profiler.email,"google"]);
-          cb(null,newUser.rows[0]);
-          
+  }, async (accessToken, refreshToken, profiler, cb) => {
+    try {
+      if (process.env.ALLOWED_GOOGLE_DOMAIN) {
+        const domain = profiler.email.split('@')[1];
+        if (domain !== process.env.ALLOWED_GOOGLE_DOMAIN) {
+          return cb(null, false);
         }
-        else
-        {
-          cb(null,result.rows[0]);
-        }
-    }
-    catch(err)
-    {
+      }
+
+      const result = await db.query('SELECT * FROM users WHERE email = $1', [profiler.email]);
+      if (result.rows.length === 0) {
+        const newUser = await db.query('INSERT INTO users (email) VALUES ($1) RETURNING *', [profiler.email]);
+        return cb(null, newUser.rows[0]);
+      }
+      return cb(null, result.rows[0]);
+    } catch (err) {
       cb(err);
     }
 

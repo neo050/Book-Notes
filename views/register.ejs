@@ -20,6 +20,7 @@
 
             <!-- Makes POST request to /register route -->
             <form action="/register" method="POST">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <div class="form-group">
                 <label for="email">Email</label>
                 <input type="email" class="form-control" name="username">
