@@ -11,7 +11,7 @@ Track everything you read, write notes, and rate books — now with **secure loc
 
 | Domain       | Details                                                                                                                                                |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Accounts** | • Local sign‑up/login with hashed passwords  <br> • Google Login via OAuth 2.0  <br> • Session powered by `express‑session`                            |
+| **Accounts** | • Local sign‑up/login with hashed passwords  <br> • Google Login via OAuth 2.0  <br> • Optional domain whitelist via `ALLOWED_GOOGLE_DOMAIN`  <br> • Session powered by `express‑session`                            |
 | **Books**    | • Add, edit, continue, delete  <br> • Scoped **per‑user** (*each user sees only their own books*)  <br> • Cover pulled from Open Library automatically |
 | **Data**     | • PostgreSQL 15+  <br> • Auto‑creates `users` & `my_books` tables on startup  <br> • All SQL parameterised — safe from injection                       |
 | **UI**       | • EJS + Bootstrap 5‑RTL templates (`home`, `login`, `register`, `books`, `add`, `edit`, `continue`)  <br> • Responsive & Hebrew‑friendly               |
@@ -42,6 +42,7 @@ cd Book-Notes
 # 2 Install\ npm install
 
 # 3 Configure env – copy & edit\ ncp .env.example .env
+#    (set `ALLOWED_GOOGLE_DOMAIN` if Google logins should come from one domain)
 
 # 4 Init DB (example)
 createdb books
@@ -64,14 +65,13 @@ SESSION_SECRET=change‑me‑in‑prod
 # OAuth (Google Cloud Console)
 GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=xxxxxxxx
-GOOGLE_CALLBACK_URL=https://book-notes-o5f0.onrender.com/auth/google/books
+
 
 # Local PostgreSQL
 DATABASE_URL=postgres://postgres:password@localhost:9977/books
 ```
 
-*Render injects its own `DATABASE_URL` & `PORT`; just set `SESSION_SECRET`,
-`GOOGLE_CLIENT_*`, `GOOGLE_CALLBACK_URL`.*
+
 
 ---
 
@@ -135,8 +135,7 @@ Use `S`, `M`, `L` for different sizes.
 ## ☁️ Deploying to Render
 
 1. **Create PostgreSQL** (free) → copy **Internal DB URL**.
-2. **Add env vars**: `SESSION_SECRET`, `GOOGLE_CLIENT_ID`,
-   `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`.
+
    You can leave local DB vars blank — Render injects its own.
 3. **Create Web Service** → Build `npm install`, Start `node index.js`.
 4. *Health Check Path* `/health`; force HTTPS toggle on.
