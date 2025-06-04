@@ -42,7 +42,16 @@ const db = new pg.Client({
 });
 await db.connect();
 const onRender = process.env.DATABASE_URL?.includes('render.com');
-
+/* ───────────────────────────────
+   HTTPS ENFORCEMENT on Render
+──────────────────────────────── */
+app.use((req, res, next) => {
+  // if on Render and not HTTPS, require upgrade
+  if (onRender && req.headers['x-forwarded-proto'] !== 'https') {
+    return res.status(426).send('Upgrade Required');
+  }
+  next();
+});
 app.use(
   session({
     store: new (pgSession(session))({
@@ -57,7 +66,7 @@ app.use(
     cookie: {
       httpOnly: true,               // Disallow JavaScript access to the cookie
       sameSite: 'lax',              // Mitigates CSRF; still works with OAuth redirects
-      secure: onRender,             // Transmit only via HTTPS on Render
+      secure: 'auto',             // Transmit only via HTTPS on Render
       maxAge: 1000 * 60 * 60 * 24,  // 24 hours in milliseconds
     },
   }),
@@ -85,16 +94,7 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ───────────────────────────────
-   HTTPS ENFORCEMENT on Render
-──────────────────────────────── */
-app.use((req, res, next) => {
-  // if on Render and not HTTPS, require upgrade
-  if (onRender && req.headers['x-forwarded-proto'] !== 'https') {
-    return res.status(426).send('Upgrade Required');
-  }
-  next();
-});
+
 
 /* ERROR HANDLER – catches everything
    and always sends a 500 JSON payload */
