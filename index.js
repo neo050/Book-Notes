@@ -19,7 +19,6 @@ import bcrypt from "bcrypt";
 import passport from "passport";
 import { Strategy } from "passport-local";
 import session from "express-session";
-import env from "dotenv";
 import GoogleStrategy from "passport-google-oauth2"
 import pgSession from 'connect-pg-simple';
 /* ───────────────────────────
@@ -29,7 +28,6 @@ const app  = express();
 app.set('trust proxy', 1); 
 const PORT = process.env.PORT || 3000;
 const saltRounds = 10;
-env.config();
 
 
 /* ───────────────────────────
