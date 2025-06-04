@@ -69,11 +69,12 @@ GOOGLE_CALLBACK_URL=https://book-notes-o5f0.onrender.com/auth/google/books
 # Optional: restrict Google sign-in to one domain
 ALLOWED_GOOGLE_DOMAIN=
 
+
 # Local PostgreSQL
 DATABASE_URL=postgres://postgres:password@localhost:9977/books
 ```
 
-*Render injects its own `DATABASE_URL` & `PORT`; just set `SESSION_SECRET`, `GOOGLE_CLIENT_*` and (optionally) `ALLOWED_GOOGLE_DOMAIN`.*
+
 
 ---
 
@@ -137,13 +138,14 @@ Use `S`, `M`, `L` for different sizes.
 ## ☁️ Deploying to Render
 
 1. **Create PostgreSQL** (free) → copy **Internal DB URL**.
-2. **Add env vars**: `SESSION_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL` and optionally `ALLOWED_GOOGLE_DOMAIN`.
+
    You can leave local DB vars blank — Render injects its own.
 3. **Create Web Service** → Build `npm install`, Start `node index.js`.
 4. *Health Check Path* `/health`; force HTTPS toggle on.
 5. Deploy → wait for “Detected open port” ✔.
-6. Set the **Google OAuth “Authorized redirect URI”** in Google Cloud Console to:
-   `https://book-notes-o5f0.onrender.com/auth/google/books`.
+6. Set the **Google OAuth “Authorized redirect URI”** in Google Cloud Console to
+   your `GOOGLE_CALLBACK_URL` value (for example,
+   `https://book-notes-o5f0.onrender.com/auth/google/books`).
 
 That’s it — login works with Google and local accounts.
 
