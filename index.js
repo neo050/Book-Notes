@@ -335,7 +335,6 @@ app.get('/edit', async (req, res) => {
    if (req.isAuthenticated()) {
     try {
       const id   = parseInt(req.query.id, 10);
-      const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
 
       const book = (await db.query(
         'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
@@ -402,7 +401,6 @@ app.get('/continue', async (req, res) => {
     {
       try {
         const id   = parseInt(req.query.id, 10);
-        const book = (await db.query('SELECT * FROM my_books WHERE id=$1 AND user_id=$2', [id, req.user.id])).rows[0];
         const book = (await db.query(
           'SELECT * FROM my_books WHERE id=$1 AND user_id=$2',
           [id, req.user.id]
