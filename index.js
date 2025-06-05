@@ -62,19 +62,24 @@ app.use(session({
 }));
 
 /* ───── Helmet with custom CSP ───── */
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'img-src': [
-        "'self'",
-        'data:',
-        'https://covers.openlibrary.org',
-        'https://archive.org',
-      ],
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "img-src": [
+          "'self'",
+          "data:",
+          "https://covers.openlibrary.org",
+          "https://archive.org",
+          "https://*.archive.org",     // e.g. ia802607.archive.org
+          "https://*.us.archive.org",  // e.g. ia600100.us.archive.org
+        ],
+      },
     },
-  },
-}));
+  }),
+);
+
 
 /* ───── Body parsing & static ───── */
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -120,6 +125,8 @@ await db.query(`
 
 /* ───── Health & OAuth routes (no CSRF) ───── */
 app.get('/health', (_req, res) => res.sendStatus(200));
+app.get('/favicon.ico', (_req, res) => res.sendStatus(204)); // or serve a real icon
+
 
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] }),
