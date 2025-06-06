@@ -129,7 +129,7 @@ Unauthenticated requests to ✓ routes redirect to **/login**.
 * **HTTPS enforcement** on Render (301 to HTTPS, else 426 locally).
 * **Secure/HttpOnly/SameSite=Lax cookies** (`secure:'auto'`).
 * **Session store in PostgreSQL** – survives restarts, prevents memory leaks.
-* **Helmet** with custom CSP (`archive.org` & `covers.openlibrary.org` allowed for images).
+* **Helmet** CSP incl. `archive.org` (+ all sub-domains) covers
 * **CSRF protection** via `csurf` (tokens injected into every form).
 * **Rate‑limit** / brute‑force protection – 5 login attempts / 15 min.
 * **Session fixation** mitigation – regenerate session ID on every login.
