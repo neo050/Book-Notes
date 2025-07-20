@@ -14,7 +14,7 @@ import passport, { Strategy as LocalStrategy } from 'passport';
 import session           from 'express-session';
 import bcrypt            from 'bcrypt';
 import GoogleStrategy    from 'passport-google-oauth2';
-import FirestoreStore    from 'connect-session-firestore';
+import FirestoreStore    from 'connect-session-firebase';
 import axios             from 'axios';
 
 import { isStrongPassword } from './utils.js';
