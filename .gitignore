@@ -1,2 +1,4 @@
 node_modules
 .env
+project-id-firebase-adminsdk.json
+sa.b64

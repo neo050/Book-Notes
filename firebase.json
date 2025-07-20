@@ -1,0 +1,10 @@
+{
+  "project": "book-notes-dev",
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "firestore": { "port": 9080, "host": "localhost" },
+    "ui":        { "enabled": true, "port": 4000 }
+  }
+}

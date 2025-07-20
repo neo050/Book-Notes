@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    /* -------- users collection -------- */
+    match /users/{userId} {
+
+      // 1) must be signed-in    AND
+      // 2) can create **only once** (no duplicate e-mail)   AND
+      // 3) may write only the allowed fields
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.keys()
+                         .hasOnly(['email', 'password'])         // put your real fields here
+                    && !exists(/databases/$(db)/documents/users/$(userId));
+
+      // the owner may read / update / delete himself
+      allow read, update, delete: if request.auth != null
+                                  && request.auth.uid == userId;
+    }
+
+    /* -------- nested books -------- */
+    match /users/{userId}/books/{bookId} {
+      allow read, write: if request.auth != null
+                          && request.auth.uid == userId;
+    }
+  }
+}

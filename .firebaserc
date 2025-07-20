@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "books-90c13",
+    "dev":"books-90c13"
+  }
+}
