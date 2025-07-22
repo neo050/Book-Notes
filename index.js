@@ -14,7 +14,7 @@ import passport, { Strategy as LocalStrategy } from 'passport';
 import session           from 'express-session';
 import bcrypt            from 'bcrypt';
 import GoogleStrategy    from 'passport-google-oauth2';
-import FirestoreStore    from 'connect-session-firebase';
+import ConnectFirestore from 'connect-session-firestore';
 import axios             from 'axios';
 
 import { isStrongPassword } from './utils.js';
@@ -37,9 +37,18 @@ if (process.env.RENDER) {
   });
 }
 
+
+const RawStore = ConnectFirestore(session);
+
+class SafeFirestoreStore extends RawStore {
+  set(sid, sess, cb) {
+    const plain = JSON.parse(JSON.stringify(sess)); 
+    return super.set(sid, plain, cb);
+  }
+}
 /*──────────────────────────── 2. Sessions ────────────────────────*/
 app.use(session({
-  store: new (FirestoreStore(session))({ database: firestore }),
+  store: new SafeFirestoreStore({ database: firestore }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
