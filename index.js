@@ -99,7 +99,9 @@ app.get('/register',   (_r, res) => res.render('register.ejs'));
 app.get('/books', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const books = await listBooks(req.user.id);
-  books.forEach(b => b.end_date = b.end_date.toDate().toISOString().slice(0, 10));
+  books.forEach(b => b.end_date = b.end_date
+   ? b.end_date.toDate().toISOString().slice(0, 10)
+   : '');
   res.render('books.ejs', { books });
 });
 
@@ -108,26 +110,60 @@ app.get('/add', (req, res) =>
   req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login'));
 
 /* Add book POST */
+// app.post('/add', async (req, res) => {
+//   if (!req.isAuthenticated()) return res.redirect('/');
+//   const { author_name, book_name, rating, introduction, notes, end_date } = req.body;
+//   //, rating, introduction, notes, end_date
+//   if ([author_name, book_name].some(!Boolean))
+//     return res.status(400).send('Missing fields');
+
+//   const { data } = await axios.get('https://openlibrary.org/search.json', {
+//     params: { title: book_name, author: author_name, limit: 1, fields: 'cover_i' },
+//   });
+//   const cover = data.docs?.[0]?.cover_i ?? 0;
+
+//   await addBook(req.user.id, {
+//     title: book_name,
+//     introduction,
+//     notes,
+//     author_name,
+//     rating: Number(rating),
+//     end_date: new Date(end_date),
+//     cover_i: cover,
+//   });
+//   res.redirect('/books');
+// });
+
+
+
+// helper: remove keys whose value === undefined
+const clean = obj =>
+  Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
+
 app.post('/add', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
+
   const { author_name, book_name, rating, introduction, notes, end_date } = req.body;
-  if ([author_name, book_name, rating, introduction, notes, end_date].some(!Boolean))
-    return res.status(400).send('Missing fields');
+
+  // only author & title are mandatory
+  if ([author_name, book_name].some(v => !v))
+    return res.status(400).send('Missing title or author');
 
   const { data } = await axios.get('https://openlibrary.org/search.json', {
     params: { title: book_name, author: author_name, limit: 1, fields: 'cover_i' },
   });
   const cover = data.docs?.[0]?.cover_i ?? 0;
 
-  await addBook(req.user.id, {
+  await addBook(req.user.id, clean({
     title: book_name,
     introduction,
     notes,
     author_name,
-    rating: Number(rating),
-    end_date: new Date(end_date),
+    rating: rating ? Number(rating) : undefined,
+    end_date: end_date ? new Date(end_date) : undefined,
     cover_i: cover,
-  });
+  }));
+
   res.redirect('/books');
 });
 
@@ -136,20 +172,22 @@ app.get('/edit', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
-  book.end_date = book.end_date.toDate().toISOString().slice(0, 10);
-  res.render('edit.ejs', { book });
+book.end_date = book.end_date
+  ? book.end_date.toDate().toISOString().slice(0, 10)
+  : '';
+    res.render('edit.ejs', { book });
 });
 
 /* Edit save */
 app.post('/edit', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const { id, introduction, notes, rating, end_date } = req.body;
-  await updateBook(req.user.id, id, {
+  await updateBook(req.user.id, id, clean({
     introduction,
     notes,
-    rating: Number(rating),
-    end_date: new Date(end_date),
-  });
+     rating: rating ? Number(rating) : undefined,
+    end_date: end_date ? new Date(end_date) : undefined,
+  }));
   res.redirect('/books');
 });
 
