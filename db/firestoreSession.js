@@ -1,6 +1,6 @@
 import session              from 'express-session';
 import ConnectFirestore     from 'connect-session-firestore';
-import { firestore }        from '../db/firestore.js';
+import { firestore }        from './firestore.js';
 
 const RawStore = ConnectFirestore(session);
 

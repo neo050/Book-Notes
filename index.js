@@ -14,7 +14,6 @@ import passport, { Strategy as LocalStrategy } from 'passport';
 import session           from 'express-session';
 import bcrypt            from 'bcrypt';
 import GoogleStrategy    from 'passport-google-oauth2';
-import ConnectFirestore from 'connect-session-firestore';
 import axios             from 'axios';
 
 import { isStrongPassword } from './utils.js';
@@ -40,14 +39,7 @@ if (process.env.RENDER) {
 }
 
 
-const RawStore = ConnectFirestore(session);
 
-class SafeFirestoreStore extends RawStore {
-  set(sid, sess, cb) {
-    const plain = JSON.parse(JSON.stringify(sess)); 
-    return super.set(sid, plain, cb);
-  }
-}
 /*──────────────────────────── 2. Sessions ────────────────────────*/
 app.use(session({
   store: sessionStore,
@@ -66,6 +58,10 @@ const __dirname  = path.dirname(__filename);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
+
+
+app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')));
+app.use('/js',  express.static(path.join(__dirname, 'node_modules/bootstrap/dist/js')));
 
 app.use(passport.initialize());
 app.use(passport.session());
