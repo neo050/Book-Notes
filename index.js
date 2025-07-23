@@ -214,7 +214,7 @@ passport.use('local', new LocalStrategy(async (username, password, cb) => {
 passport.use('google', new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL:  process.env.GOOGLE_CALLBACK_URL || 'https://book-notes.onrender.com/auth/google/books',
+  callbackURL:  process.env.CALL_BACK_URL,
 }, async (_at, _rt, profile, cb) => {
   const allowed = process.env.ALLOWED_GOOGLE_DOMAIN;
   if (allowed && profile.email.split('@')[1] !== allowed) return cb(null, false);
