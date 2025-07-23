@@ -99,7 +99,7 @@ app.get('/register',   (_r, res) => res.render('register.ejs'));
 app.get('/books', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const books = await listBooks(req.user.id);
-  books.forEach(b => b.end_date = b.end_date.toISOString().slice(0, 10));
+  books.forEach(b => b.end_date = b.end_date.toDate().toISOString().slice(0, 10));
   res.render('books.ejs', { books });
 });
 
@@ -136,7 +136,7 @@ app.get('/edit', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
-  book.end_date = book.end_date.toISOString().slice(0, 10);
+  book.end_date = book.end_date.toDate().toISOString().slice(0, 10);
   res.render('edit.ejs', { book });
 });
 
@@ -165,7 +165,7 @@ app.get('/continue', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
-  book.end_date = book.end_date.toISOString().slice(0, 10);
+  book.end_date = book.end_date.toDate().toISOString().slice(0, 10);
   res.render('continue.ejs', { book });
 });
 
