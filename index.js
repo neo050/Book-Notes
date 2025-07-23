@@ -51,7 +51,25 @@ app.use(session({
 }));
 
 /*──────────────────────────── 3. Middleware ───────────────────────*/
-app.use(helmet());
+      /* ───────────────────────────
+        . Helmet - CSP fix
+      ─────────────────────────── */
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'img-src': [
+        "'self'",
+        'data:',
+        'https://covers.openlibrary.org',
+        'https://archive.org',
+        'https://*.archive.org',
+        'https://*.us.archive.org',
+      ],
+    },
+  },
+}));
 app.use(bodyParser.urlencoded({ extended: true }));
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -65,6 +83,8 @@ app.use('/js',  express.static(path.join(__dirname, 'node_modules/bootstrap/dist
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+
 
 /*──────────────────────────── 4. Logger ──────────────────────────*/
 app.use((req, _res, next) => {
