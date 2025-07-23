@@ -55,21 +55,22 @@ app.use(session({
         . Helmet - CSP fix
       ─────────────────────────── */
 
-app.use(helmet({
-  contentSecurityPolicy: {
+app.use(
+  helmet.contentSecurityPolicy({
+    useDefaults: true,           // keeps Helmet’s standard policy set
     directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'img-src': [
+      imgSrc: [                  // camelCase key 
         "'self'",
-        'data:',
-        'https://covers.openlibrary.org',
-        'https://archive.org',
-        'https://*.archive.org',
-        'https://*.us.archive.org',
+        "data:",
+        "https://covers.openlibrary.org",
+        "https://archive.org",
+        "https://*.archive.org",
+        "https://*.us.archive.org",
       ],
     },
-  },
-}));
+  }),
+);
+
 app.use(bodyParser.urlencoded({ extended: true }));
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
