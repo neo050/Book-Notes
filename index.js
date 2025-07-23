@@ -22,6 +22,8 @@ import { firestore }        from './db/firestore.js';
 import {
   listBooks, getBook, addBook, updateBook, deleteBook,
 } from './services/books.js';
+import { storeInstance as sessionStore } from './db/firestoreSession.js';
+
 
 const app  = express();
 app.set('trust proxy', 1);
@@ -48,7 +50,7 @@ class SafeFirestoreStore extends RawStore {
 }
 /*──────────────────────────── 2. Sessions ────────────────────────*/
 app.use(session({
-  store: new SafeFirestoreStore({ database: firestore }),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -234,8 +236,16 @@ passport.deserializeUser((user, cb) => cb(null, user));
 /*────────────────────────── 11. Errors & Start ───────────────────*/
 app.use((err, _req, res, _next) => {
   console.error('UNCAUGHT:', err);
-  res.status(500).send(process.env.NODE_ENV === 'production'
-    ? 'Internal Server Error' : String(err));
+
+  
+  if (res.headersSent) return;
+
+  res.status(500).send(
+    process.env.NODE_ENV === 'production'
+      ? 'Internal Server Error'
+      : String(err),
+  );
 });
+
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
