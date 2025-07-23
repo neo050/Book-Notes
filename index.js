@@ -203,8 +203,8 @@ app.get('/continue', async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
-  book.end_date = book.end_date.toDate().toISOString().slice(0, 10);
-  res.render('continue.ejs', { book });
+book.end_date = book.end_date ? book.end_date.toDate().toISOString().slice(0, 10): ''; 
+   res.render('continue.ejs', { book });
 });
 
 /*────────────────────────── 9. Auth handlers ─────────────────────*/
