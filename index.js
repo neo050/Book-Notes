@@ -10,7 +10,8 @@ import helmet            from 'helmet';
 import csurf             from 'csurf';
 import rateLimit         from 'express-rate-limit';
 
-import passport, { Strategy as LocalStrategy } from 'passport';
+import passport from 'passport';
+import { Strategy as LocalStrategy } from 'passport-local';
 import session           from 'express-session';
 import bcrypt            from 'bcrypt';
 import GoogleStrategy    from 'passport-google-oauth2';
@@ -28,6 +29,38 @@ const app  = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 
+
+/*──────────────────────────── 2. Sessions ────────────────────────*/
+app.use(session({
+  store: sessionStore,
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 864e5 },
+}));
+
+
+app.use(bodyParser.urlencoded({ extended: true }));
+
+
+/*──────────────────────────── 6. CSRF & helpers ───────────────────*/
+
+ const csrfProtection = csurf({ ignoreMethods: ['GET','HEAD','OPTIONS'] });
+ const attachToken = (req,res,next) => { res.locals.csrfToken = req.csrfToken(); next(); };
+
+ const withCsrf = [csrfProtection, attachToken];
+
+
+
+
+// app.use((req,res,next)=>{
+
+//   if (req.method === 'GET') console.log('token sent:', res.locals.csrfToken);
+//   if (req.method === 'POST') console.log('token received:', req.body?._csrf);
+//   next();
+// });
+
 /*──────────────────────────── 1. HTTPS (Render) ───────────────────*/
 if (process.env.RENDER) {
   app.use((req, res, next) => {
@@ -40,15 +73,7 @@ if (process.env.RENDER) {
 
 
 
-/*──────────────────────────── 2. Sessions ────────────────────────*/
-app.use(session({
-  store: sessionStore,
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  proxy: true,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 864e5 },
-}));
+
 
 /*──────────────────────────── 3. Middleware ───────────────────────*/
       /* ───────────────────────────
@@ -71,7 +96,7 @@ app.use(
   }),
 );
 
-app.use(bodyParser.urlencoded({ extended: true }));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 app.set('view engine', 'ejs');
@@ -104,20 +129,18 @@ app.get('/auth/google/books',
   passport.authenticate('google', { successRedirect: '/books', failureRedirect: '/login' }),
 );
 
-/*──────────────────────────── 6. CSRF & helpers ───────────────────*/
-app.use(csurf({ ignoreMethods: ['GET', 'HEAD', 'OPTIONS'] }));
-app.use((req, res, next) => { res.locals.csrfToken = req.csrfToken(); next(); });
+
 
 /*──────────────────────────── 7. Rate-limit login ─────────────────*/
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
 
 /*──────────────────────────── 8. View routes ──────────────────────*/
-app.get('/',           (_r, res) => res.render('home.ejs'));
-app.get('/login',      (_r, res) => res.render('login.ejs'));
-app.get('/register',   (_r, res) => res.render('register.ejs'));
+app.get('/',       withCsrf,    (_r, res) => res.render('home.ejs'));
+app.get('/login',  withCsrf ,   (_r, res) => res.render('login.ejs'));
+app.get('/register',  withCsrf, (_r, res) => res.render('register.ejs'));
 
 /* Books list */
-app.get('/books', async (req, res) => {
+app.get('/books',withCsrf, async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const books = await listBooks(req.user.id);
   books.forEach(b => b.end_date = b.end_date
@@ -127,33 +150,9 @@ app.get('/books', async (req, res) => {
 });
 
 /* Add form */
-app.get('/add', (req, res) =>
+app.get('/add',withCsrf, (req, res) =>
   req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login'));
 
-/* Add book POST */
-// app.post('/add', async (req, res) => {
-//   if (!req.isAuthenticated()) return res.redirect('/');
-//   const { author_name, book_name, rating, introduction, notes, end_date } = req.body;
-//   //, rating, introduction, notes, end_date
-//   if ([author_name, book_name].some(!Boolean))
-//     return res.status(400).send('Missing fields');
-
-//   const { data } = await axios.get('https://openlibrary.org/search.json', {
-//     params: { title: book_name, author: author_name, limit: 1, fields: 'cover_i' },
-//   });
-//   const cover = data.docs?.[0]?.cover_i ?? 0;
-
-//   await addBook(req.user.id, {
-//     title: book_name,
-//     introduction,
-//     notes,
-//     author_name,
-//     rating: Number(rating),
-//     end_date: new Date(end_date),
-//     cover_i: cover,
-//   });
-//   res.redirect('/books');
-// });
 
 
 
@@ -161,7 +160,7 @@ app.get('/add', (req, res) =>
 const clean = obj =>
   Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
 
-app.post('/add', async (req, res) => {
+app.post('/add',csrfProtection, async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
 
   const { author_name, book_name, rating, introduction, notes, end_date } = req.body;
@@ -189,7 +188,7 @@ app.post('/add', async (req, res) => {
 });
 
 /* Edit form */
-app.get('/edit', async (req, res) => {
+app.get('/edit', withCsrf,async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
@@ -200,7 +199,7 @@ book.end_date = book.end_date
 });
 
 /* Edit save */
-app.post('/edit', async (req, res) => {
+app.post('/edit',csrfProtection, async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const { id, introduction, notes, rating, end_date } = req.body;
   await updateBook(req.user.id, id, clean({
@@ -213,14 +212,14 @@ app.post('/edit', async (req, res) => {
 });
 
 /* Delete */
-app.post('/delete', async (req, res) => {
+app.post('/delete',csrfProtection, async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   await deleteBook(req.user.id, req.body.id);
   res.redirect('/books');
 });
 
 /* Continue view (read-only) */
-app.get('/continue', async (req, res) => {
+app.get('/continue', withCsrf,async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   const book = await getBook(req.user.id, req.query.id);
   if (!book) return res.status(404).send('Not found');
@@ -228,8 +227,17 @@ book.end_date = book.end_date ? book.end_date.toDate().toISOString().slice(0, 10
    res.render('continue.ejs', { book });
 });
 
+/*────────────────────────── . Passport strategies ──────────────*/
+passport.use('local', new LocalStrategy(async (username, password, cb) => {
+  const doc = await firestore.collection('users').doc(username).get();
+  if (!doc.exists) return cb(null, false);
+  const ok = await bcrypt.compare(password, doc.data().password);
+  cb(null, ok ? { id: doc.id, ...doc.data() } : false);
+}));
+
+
 /*────────────────────────── 9. Auth handlers ─────────────────────*/
-app.post('/login', loginLimiter, (req, res, next) => {
+app.post('/login', csrfProtection,loginLimiter, (req, res, next) => {
   passport.authenticate('local', (err, user) => {
     if (err || !user) return res.redirect('/login');
     req.session.regenerate(e => {
@@ -240,12 +248,14 @@ app.post('/login', loginLimiter, (req, res, next) => {
 });
 
 /* Register */
-app.post('/register', async (req, res) => {
+app.post('/register',csrfProtection, async (req, res) => {
   const { username: email, password } = req.body;
   if (!isStrongPassword(password)) return res.status(400).send('Weak password');
 
-  const exists = !(await firestore.collection('users').doc(email).get()).exists;
-  if (exists) return res.redirect('/login');
+ const snap = await firestore.collection('users').doc(email).get();
+    if (snap.exists) {
+      return res.redirect('/login'); 
+    }
 
   const hash = await bcrypt.hash(password, 10);
   await firestore.collection('users').doc(email).set({ email, password: hash });
@@ -262,13 +272,7 @@ app.post('/register', async (req, res) => {
 app.get('/logout', (req, res) =>
   req.logout(err => { if (err) console.error(err); res.redirect('/'); }));
 
-/*────────────────────────── 10. Passport strategies ──────────────*/
-passport.use('local', new LocalStrategy(async (username, password, cb) => {
-  const doc = await firestore.collection('users').doc(username).get();
-  if (!doc.exists) return cb(null, false);
-  const ok = await bcrypt.compare(password, doc.data().password);
-  cb(null, ok ? { id: doc.id, ...doc.data() } : false);
-}));
+
 
 passport.use('google', new GoogleStrategy({
   clientID:     process.env.GOOGLE_CLIENT_ID,

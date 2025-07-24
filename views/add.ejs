@@ -17,14 +17,14 @@
     
         <!--  { book_name, book_name, rating, introduction, notes, end_date } -->
 
-    <form action="/add" method="post" class="m-2">
+    <form action="/add" method="POST" class="m-2">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <div class="col-md-6 mt-4 xr-4">
                                     <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm h-md-250 position-relative"> 
                                         <div class="col p-4 d-flex flex-column position-static"> 
-                                            <h3 class="mb-0"> Book name <input class="input mb-2" type="text" name="book_name" value="" autocomplete="off"
+                                            <h3 class="mb-0"> Book name <input class="input mb-2" type="text" name="book_name" value="" autocomplete="off" required
                                                          autofocus="true"  /></h3> 
-                                            <strong class="d-inline-block mb-2 text-primary-emphasis"> Author's name</strong> <input class="input mb-2" type="text" name="author_name" value="" autocomplete="off"
+                                            <strong class="d-inline-block mb-2 text-primary-emphasis"> Author's name</strong> <input class="input mb-2" type="text" name="author_name" value="" autocomplete="off" required
                                                          autofocus="true"  />
                                             <div class="mb-1 text-body-secondary"> <strong>finished reading at </strong> <input class="input mb-2" type="date" name="end_date" value="" autocomplete="off"
                                                          autofocus="true"  /><strong>, I rate this book </strong> <input class="input" type="number" name="rating" value="" autocomplete="off"

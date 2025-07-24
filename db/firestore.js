@@ -21,10 +21,12 @@ const serviceAccount = process.env.FIREBASE_SA_JSON
 
 
 initializeApp({ credential: cert(serviceAccount) });
+export const firestore = getFirestore();
+
 
 if (process.env.FIRESTORE_EMULATOR_HOST) {
-  firestore.settings({  ssl: false });
+  firestore.settings({ host: process.env.FIRESTORE_EMULATOR_HOST, ssl: false });
 }
 
 
-export const firestore = getFirestore();
+
