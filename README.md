@@ -1,4 +1,5 @@
-# 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG 
+# 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG ➡️ **Live demo:** [book-notes-o5f0.onrender.com](https://book-notes-o5f0.onrender.com)
+
 Live demo book-notes-o5f0.onrender.com
 Keep track of everything you read, write notes & ratings, and—new in **v2**—ask questions about your own library through a Retrieval‑Augmented‑Generation (RAG) layer powered by **LangChain + OpenAI**.
 
