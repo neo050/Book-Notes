@@ -1,5 +1,5 @@
-# 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG Live demo book-notes-o5f0.onrender.com
-
+# 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG 
+Live demo book-notes-o5f0.onrender.com
 Keep track of everything you read, write notes & ratings, and—new in **v2**—ask questions about your own library through a Retrieval‑Augmented‑Generation (RAG) layer powered by **LangChain + OpenAI**.
 
 The app stores all data in **Cloud Firestore** (server SDK), runs instantly on localhost (with the Firestore Emulator), and deploys easily to **Render**. The frontend is a modern **React (Vite)** SPA that talks to a hardened **Express 5** JSON API. Docker configs are included for dev/prod.
