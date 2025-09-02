@@ -22,8 +22,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-# Use npm install (not ci) so the lock can be regenerated in-image
-RUN npm install --omit=dev --no-audit --no-fund
+# Use npm install (not ci) and ignore lifecycle scripts (postinstall) —
+# root postinstall builds the React client, but in this stage we don't copy
+# client/ yet. Client gets built in the dedicated client-build stage.
+RUN npm install --omit=dev --no-audit --no-fund --ignore-scripts
 
 
 # --- Runtime image ---
