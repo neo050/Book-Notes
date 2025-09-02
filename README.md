@@ -1,8 +1,8 @@
-# 📚 Book‑Notes — Personal Reading Tracker + Secure Auth
+# 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG
 
-➡️ **Live demo on Render:** [https://book-notes-o5f0.onrender.com](https://book-notes-o5f0.onrender.com) *(Render free‑tier Web Service + PostgreSQL)*
+Keep track of everything you read, write notes & ratings, and—new in **v2**—ask questions about your own library through a Retrieval‑Augmented‑Generation (RAG) layer powered by **LangChain + OpenAI**.
 
-Store every non‑fiction book you read, add notes & ratings, and sign‑in with either **local credentials** or **Google OAuth 2.0**. The project runs instantly on **localhost** (no Docker) and deploys in two clicks to **Render**, where HTTPS is enforced automatically.
+The app stores all data in **Cloud Firestore** (server SDK), runs instantly on localhost (with the Firestore Emulator), and deploys easily to **Render**. The frontend is a modern **React (Vite)** SPA that talks to a hardened **Express 5** JSON API. Docker configs are included for dev/prod.
 
 ---
 
@@ -10,26 +10,29 @@ Store every non‑fiction book you read, add notes & ratings, and sign‑in with
 
 | Domain             | Highlights                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Authentication** | • Local sign‑up/login (bcrypt + Passport‑local)  <br>• Google login (Passport‑Google‑OAuth2)  <br>• Optional domain allow‑list – `ALLOWED_GOOGLE_DOMAIN`                                                                                                                                                                                                   |
-| **Security**       | • HTTPS redirect middleware  <br>• `express‑session` + **Secure / HttpOnly / SameSite=Lax** cookies  <br>• Session store in **PostgreSQL** (`connect‑pg‑simple`)  <br>• **Helmet** CSP incl. `archive.org` covers  <br>• **CSRF** protection (`csurf`)  <br>• **Rate‑limit** on `/login` (5 tries / 15 min)  <br>• Session rotation after login (fixation) |
-| **Books**          | • Add, edit, continue, delete  <br>• Books are **scoped per‑user**  <br>• Cover fetched from Open Library                                                                                                                                                                                                                                                  |
-| **Data**           | • PostgreSQL 15  <br>• Tables auto‑create on first run  <br>• All SQL parameterised                                                                                                                                                                                                                                                                        |
-| **UI**             | • Server‑side EJS templates  <br>• Bootstrap 5‑RTL – mobile friendly                                                                                                                                                                                                                                                                                       |
-| **Ops**            | • `/health` endpoint  <br>• Central error handler (prod vs. dev)                                                                                                                                                                                                                                                                                           |
+| **Authentication** | • Local sign‑up / login (bcrypt + Passport‑local)  <br>• Google OAuth 2.0 (Passport‑Google)  <br>• Optional domain allow‑list: `ALLOWED_GOOGLE_DOMAIN`                                                                                                                                                                                        |
+| **Security**       | • HTTPS redirect middleware  <br>• **Secure / HttpOnly / SameSite=Lax** session cookies stored in **Firestore** (custom session store)  <br>• **Helmet** CSP incl. Open Library covers  <br>• **CSRF** protection (`csurf`); SPA fetches `/api/csrf-token` and sends `x-csrf-token`  <br>• **Rate‑limit** on `/login` (5 / 15 min)  <br>• Session rotation after login (fixation) |
+| **Books**          | • Add, edit, continue, delete  <br>• Books are **scoped per‑user**  <br>• Cover fetched from Open Library                                                                                                                                                                                                                                     |
+| **AI / RAG**       | • Vector store based on **PGVector** (Postgres) *or* **Firestore** (embeddings as arrays)  <br>• Embeddings via **OpenAI `text‑embedding‑3‑small`**  <br>• Chunking with LangChain `RecursiveCharacterTextSplitter`  <br>• Ask free‑form questions about your own notes (beta)                                                                         |
+| **Data**           | • Cloud Firestore in two modes:  <br>  • **Production** – real GCP project  <br>  • **Local dev** – Firestore Emulator (no internet)                                                                                                                                                                                                          |
+| **Frontend**       | • **React 18 (Vite)** SPA  <br>• Client‑side routing  <br>• Bootstrap 5‑RTL  <br>• Delete confirmations with in‑app modal (no browser alerts)                                                                                                                                                                                                     |
+| **Backend**        | • **Express 5** JSON API  <br>• SPA fallback for non‑`/api/*` routes  <br>• Health probe `/health`                                                                                                                                                                                                                                                   |
+| **Tests**          | • Unit + E2E (Node test runner + Supertest)  <br>• In‑memory Firestore for tests  <br>• Optional load test profile (Artillery)                                                                                                                                                                                                                     |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer         | Tech                                                 |
-| ------------- | ---------------------------------------------------- |
-| **Runtime**   | Node 20, Express 5                                   |
-| **Auth**      | Passport‑local, Passport‑Google‑OAuth2, bcrypt       |
-| **Security**  | Helmet, csurf, express‑rate‑limit, connect‑pg‑simple |
-| **DB**        | PostgreSQL 15 + `pg` driver                          |
-| **Views**     | EJS, Bootstrap 5‑RTL                                 |
-| **Dev Tools** | Nodemon, dotenv                                      |
-| **Deploy**    | Render Web Service + Render PostgreSQL               |
+| Layer         | Tech                                                     |
+| ------------- | -------------------------------------------------------- |
+| **Runtime**   | Node 20, Express 5                                       |
+| **Auth**      | Passport‑local, Passport‑Google‑OAuth2, bcrypt           |
+| **Security**  | Helmet, csurf, express‑rate‑limit                         |
+| **Data**      | Cloud Firestore (server SDK) + Firestore Emulator        |
+| **AI / RAG**  | LangChain, OpenAI Embeddings, PGVector (optional)        |
+| **Frontend**  | React 18 + Vite, React‑Router, Bootstrap 5‑RTL           |
+| **Dev Tools** | Nodemon, dotenv, Firebase CLI, Node test runner, Supertest |
+| **Ops**       | Dockerfile + docker‑compose (dev/prod), Health checks    |
 
 ---
 
@@ -37,116 +40,137 @@ Store every non‑fiction book you read, add notes & ratings, and sign‑in with
 
 ```bash
 # 1 Clone
-$ git clone https://github.com/neo050/Book-Notes.git
-$ cd Book-Notes
+git clone https://github.com/neo050/Book-Notes.git
+cd Book-Notes
 
 # 2 Install deps
-$ npm install
+npm install
+cd client && npm install && cd ..
 
-# 3 Environment
-$ cp .env.example .env   # edit values
+# 3 Environment (copy + edit)
+cp .env.example .env
 
-# 4 Create DB (example)
-$ createdb books
-$ psql -d books -f db/schema.sql   # optional – tables auto‑create
+# 4 Run API (port 3000)
+npm run dev
 
-# 5 Run in dev mode (auto‑reload)
-$ npm run dev
+# 5 Start Firestore Emulator (optional, new terminal)
+# If you use Firebase CLI
+# firebase emulators:start --only firestore --project book-notes-dev
 
-# 6 Open
-👉 http://localhost:3001
+# 6 Run API (points to emulator if FIRESTORE_EMULATOR_HOST is set)
+npm run dev
+
+# 7 Run React dev server (port 5173, proxied to API)
+cd client && npm run dev
+
+# 8 Open React app
+👉 http://localhost:5173
 ```
 
-> **Prerequisites:** Node 18+ and PostgreSQL 14+. Google OAuth requires a project & Client ID in Google Cloud Console.
+> Prerequisites: Node 18+, Firebase CLI (for emulator), Google OAuth Client ID/Secret. For dev, set `CALL_BACK_URL=http://localhost:3000/auth/google/books`.
 
-\### `.env.example`
+---
+
+## 🐳 Docker
+
+Builds React client and serves it via Express.
+
+```bash
+# Production‑like locally (uses .env.production)
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
+
+# App is on http://localhost:3000
+```
+
+Dev compose (optional): use `docker-compose.yml` and your `.env`. If you run a local Firestore emulator on the host, set `FIRESTORE_EMULATOR_HOST=host.docker.internal:9080` so the container can reach it.
+
+---
+
+## 🔧 Configuration
+
+Minimal variables (dev/prod):
 
 ```ini
-# Server
-PORT=3001
 SESSION_SECRET=change-me
-
-# PostgreSQL (local)
-DATABASE_URL=postgres://postgres:password@localhost:9977/books
+USE_REACT=true
 
 # Google OAuth
 GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=xxxxxxxx
-GOOGLE_CALLBACK_URL=http://localhost:3001/auth/google/books
-# Restrict Google login (optional)
+CALL_BACK_URL=http://localhost:3000/auth/google/books
 ALLOWED_GOOGLE_DOMAIN=
+
+# Firestore (choose one)
+# 1) Cloud: provide FIREBASE_SA_JSON (Base64 of service account JSON)
+FIREBASE_SA_JSON=...base64...
+# 2) Emulator: set FIRESTORE_EMULATOR_HOST (e.g. localhost:9080)
+# FIRESTORE_EMULATOR_HOST=localhost:9080
+
+# RAG (optional)
+OPENAI_API_KEY=sk-...
 ```
 
-Render injects its own `PORT` & `DATABASE_URL`; keep those lines but you don’t need to fill them.
+In tests we use an in‑memory Firestore automatically (`NODE_ENV=test`).
 
 ---
 
-## 🗄️ Database Schema
+## 📑 Endpoint Overview
 
-```sql
-CREATE TABLE IF NOT EXISTS users (
-  id       SERIAL PRIMARY KEY,
-  email    VARCHAR(100) UNIQUE NOT NULL,
-  password VARCHAR(100)         -- null when created via Google
-);
+| Verb | Path                 | Auth | Purpose                         |
+| ---- | -------------------- | ---- | ------------------------------- |
+| GET  | `/health`            | –    | Liveness probe                  |
+| GET  | `/api/csrf-token`    | –    | Get CSRF token for SPA          |
+| GET  | `/api/me`            | –    | Session info `{authenticated}`  |
+| GET  | `/api/books`         | ✓    | List user’s books               |
+| GET  | `/api/books/:id`     | ✓    | Get a book                      |
+| POST | `/api/books`         | ✓    | Create (JSON + CSRF)            |
+| PUT  | `/api/books/:id`     | ✓    | Update (JSON + CSRF)            |
+| DEL  | `/api/books/:id`     | ✓    | Delete (JSON + CSRF)            |
+| GET  | `/auth/google`       | –    | Google consent                  |
+| GET  | `/auth/google/books` | –    | Google callback                 |
+| POST | `/ask`               | ✓    | RAG question (beta)             |
 
-CREATE TABLE IF NOT EXISTS my_books (
-  id           SERIAL PRIMARY KEY,
-  user_id      INT REFERENCES users(id) ON DELETE CASCADE,
-  title        VARCHAR(100)  NOT NULL,
-  introduction VARCHAR(1000) NOT NULL,
-  notes        VARCHAR(10000)NOT NULL,
-  author_name  VARCHAR(100)  NOT NULL,
-  rating       SMALLINT      NOT NULL CHECK (rating BETWEEN 1 AND 10),
-  end_date     DATE          NOT NULL,
-  cover_i      INT           NOT NULL
-);
-```
-
----
-
-## 📑 Endpoint Overview
-
-| Verb | Path                       | Auth | Purpose         |
-| ---- | -------------------------- | ---- | --------------- |
-| GET  | `/`                        | –    | Landing         |
-| GET  | `/login` `/register`       | –    | Forms           |
-| POST | `/login`                   | –    | Local login     |
-| POST | `/register`                | –    | Local sign‑up   |
-| GET  | `/auth/google`             | –    | Google consent  |
-| GET  | `/auth/google/books`       | –    | Google callback |
-| GET  | `/books`                   | ✓    | List user books |
-| GET  | `/add` `/edit` `/continue` | ✓    | Forms           |
-| POST | `/add` `/edit` `/delete`   | ✓    | Mutations       |
-| GET  | `/health`                  | –    | Render probe    |
-
-Unauthenticated requests to ✓ routes redirect to **/login**.
+SPA routes (React) are served for any non‑`/api/*` path when `client/dist` exists.
 
 ---
 
 ## 🔐 Security Highlights
 
-* **HTTPS enforcement** on Render (301 to HTTPS, else 426 locally).
-* **Secure/HttpOnly/SameSite=Lax cookies** (`secure:'auto'`).
-* **Session store in PostgreSQL** – survives restarts, prevents memory leaks.
-* **Helmet** CSP incl. `archive.org` (+ all sub-domains) covers
-* **CSRF protection** via `csurf` (tokens injected into every form).
-* **Rate‑limit** / brute‑force protection – 5 login attempts / 15 min.
-* **Session fixation** mitigation – regenerate session ID on every login.
-* **Parameterized SQL** only (no string concatenation).
+* **HTTPS enforcement** (when behind proxy)
+* **Secure/HttpOnly/SameSite=Lax cookies** (`secure:'auto'`)
+* **Session store in Firestore** (custom store), memory store in tests
+* **Helmet** CSP with Open Library cover domains
+* **CSRF protection** (`csurf`); SPA fetches `/api/csrf-token` and sends `x-csrf-token`
+* **Rate‑limit** on `/login` (5 attempts / 15 min)
+* **Session fixation** mitigation via `req.session.regenerate()`
 
 ---
 
-## ☁️ Deploy to Render
+## 🧪 Tests
 
-1. **Create a Postgres DB** → copy its **Internal DB URL**.
-2. **Create a Web Service** from this repo.
-   \* Build Cmd:\* `npm install`   *Start Cmd:* `node index.js`
-3. In *Environment* add `SESSION_SECRET`, Google OAuth vars, and (optionally) `ALLOWED_GOOGLE_DOMAIN`.
-4. *Health Check Path:* `/health`; enable **Force HTTPS**.
-5. In Google Cloud Console add the Render URL to **Authorized redirect URIs**.
+```bash
+# Run all unit + E2E tests (Node test runner)
+npm test
 
-Live in \~30 sec 🎉
+# Load test (Artillery) — use with care
+npx artillery run load/artillery.yml
+```
+
+Highlights:
+– In‑memory Firestore in tests (`NODE_ENV=test`) for fast, hermetic runs.
+– E2E (`test/api.e2e.test.js`) covers login, CSRF, full CRUD.
+– Optional load profile `load/artillery.yml` (warm‑up, ramp, 10k spike).
+
+---
+
+## ☁️ Deploy
+
+Any Node host or container platform works. For Docker:
+
+1. Build client + server with the provided `Dockerfile`.
+2. Use `docker-compose.prod.yml` and a `.env.production` containing production secrets.
+3. Set Google OAuth **Authorized redirect URI** to your domain, e.g. `https://your-domain.com/auth/google/books`.
 
 ---
 
@@ -154,9 +178,9 @@ Live in \~30 sec 🎉
 
 ```json
 "scripts": {
-  "dev":   "nodemon index.js",
+  "dev":   "cross-env FIRESTORE_EMULATOR_HOST=127.0.0.1:9080 GCLOUD_PROJECT=book-notes-dev nodemon index.js",
   "start": "node index.js",
-  "db:init": "psql -d books -f db/schema.sql"
+  "test":  "node --test --experimental-test-module-mocks"
 }
 ```
 
@@ -165,10 +189,9 @@ Live in \~30 sec 🎉
 ## 🤝 Acknowledgements
 
 * Open Library – cover & search API
+* React, Vite, React Router – frontend stack
 * Passport + bcrypt – auth stack
 * Helmet, csurf, express‑rate‑limit – security middleware
-* Bootstrap RTL – layout
-* Render.com – free hosting
 
 ---
 

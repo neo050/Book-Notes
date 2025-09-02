@@ -1,0 +1,28 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 50
+      name: warmup
+    - duration: 60
+      arrivalRate: 500
+      name: ramp
+    - duration: 60
+      arrivalRate: 10000
+      name: spike-10k
+  processor: |
+    function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+scenarios:
+  - name: health-and-static
+    flow:
+      - get:
+          url: "/health"
+      - get:
+          url: "/"
+  - name: api-unauth-guard
+    flow:
+      - get:
+          url: "/api/books"
+          expect:
+            - statusCode: 401
+

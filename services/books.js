@@ -1,6 +1,5 @@
 /* services/books.js ------------------------------------------------ */
 import { firestore } from '../db/firestore.js';
-import { FieldValue } from 'firebase-admin/firestore';
 
 const userDoc   = uid => firestore.collection('users').doc(uid);
 const booksColl = uid => userDoc(uid).collection('books');
@@ -16,7 +15,7 @@ export const getBook = async (uid, id) => {
 };
 
 export const addBook = (uid, book) =>
-  booksColl(uid).add({ ...book, created: FieldValue.serverTimestamp() });
+  booksColl(uid).add({ ...book, created: new Date() });
 
 export const updateBook = (uid, id, patch) =>
   booksColl(uid).doc(id).update(patch);
