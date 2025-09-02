@@ -2,6 +2,9 @@
  * Book-Notes — Express + Firestore
  ********************************************************************/
 import 'dotenv/config';
+if (process.env.NODE_ENV !== 'test') {
+  await import('./cron.js');
+}
 import express           from 'express';
 import path              from 'path';
 import { fileURLToPath } from 'url';
@@ -9,6 +12,7 @@ import bodyParser        from 'body-parser';
 import helmet            from 'helmet';
 import csurf             from 'csurf';
 import rateLimit         from 'express-rate-limit';
+import { existsSync }    from 'node:fs';
 
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
@@ -22,17 +26,27 @@ import { firestore }        from './db/firestore.js';
 import {
   listBooks, getBook, addBook, updateBook, deleteBook,
 } from './services/books.js';
-import { storeInstance as sessionStore } from './db/firestoreSession.js';
+import { searchWorks } from './services/olSearch.js';
 
 
-const app  = express();
+
+export const app  = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
+let USE_REACT = process.env.USE_REACT !== 'false';
 
 
 /*──────────────────────────── 2. Sessions ────────────────────────*/
+const useMemorySessions = process.env.NODE_ENV === 'test';
+let sessionStoreResolved;
+if (useMemorySessions) {
+  sessionStoreResolved = new session.MemoryStore();
+} else {
+  const mod = await import('./db/firestoreSession.js');
+  sessionStoreResolved = mod.storeInstance;
+}
 app.use(session({
-  store: sessionStore,
+  store: sessionStoreResolved,
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -42,6 +56,7 @@ app.use(session({
 
 
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 
 
 /*──────────────────────────── 6. CSRF & helpers ───────────────────*/
@@ -99,6 +114,8 @@ app.use(
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
+// Only enable React SPA if a build exists (unless explicitly disabled)
+USE_REACT = USE_REACT && existsSync(path.join(__dirname, 'client', 'dist'));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -125,9 +142,19 @@ app.get('/health', (_req, res) => res.sendStatus(200));
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] }),
 );
-app.get('/auth/google/books',
-  passport.authenticate('google', { successRedirect: '/books', failureRedirect: '/login' }),
-);
+app.get('/auth/google/books', (req, res, next) => {
+  passport.authenticate('google', (err, user) => {
+    if (err) {
+      console.error('Google OAuth error:', err);
+      return res.redirect('/login');
+    }
+    if (!user) return res.redirect('/login');
+    req.session.regenerate(e => {
+      if (e) return next(e);
+      req.login(user, e2 => (e2 ? next(e2) : res.redirect('/books')));
+    });
+  })(req, res, next);
+});
 
 
 
@@ -135,27 +162,34 @@ app.get('/auth/google/books',
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
 
 /*──────────────────────────── 8. View routes ──────────────────────*/
-app.get('/',       withCsrf,    (_r, res) => res.render('home.ejs'));
-app.get('/login',  withCsrf ,   (_r, res) => res.render('login.ejs'));
-app.get('/register',  withCsrf, (_r, res) => res.render('register.ejs'));
+if (!USE_REACT) {
+  app.get('/',       withCsrf,    (_r, res) => res.render('home.ejs'));
+  app.get('/login',  withCsrf ,   (_r, res) => res.render('login.ejs'));
+  app.get('/register',  withCsrf, (_r, res) => res.render('register.ejs'));
 
-/* Books list */
-app.get('/books',withCsrf, async (req, res) => {
-  if (!req.isAuthenticated()) return res.redirect('/');
-  const books = await listBooks(req.user.id);
-  books.forEach(b => b.end_date = b.end_date
-   ? b.end_date.toDate().toISOString().slice(0, 10)
-   : '');
-  res.render('books.ejs', { books });
+  /* Books list */
+  app.get('/books',withCsrf, async (req, res) => {
+    if (!req.isAuthenticated()) return res.redirect('/');
+    const books = await listBooks(req.user.id);
+    books.forEach(b => b.end_date = b.end_date
+     ? b.end_date.toDate().toISOString().slice(0, 10)
+     : '');
+    res.render('books.ejs', { books });
+  });
+
+  /* Add form */
+  app.get('/add',withCsrf, (req, res) =>
+    req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login'));
+}
+
+
+//  Semantic search helper
+app.get('/api/ol-search', async (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.status(400).send('q missing');
+  const hits = await searchWorks(q);
+  res.json(hits);
 });
-
-/* Add form */
-app.get('/add',withCsrf, (req, res) =>
-  req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login'));
-
-
-
-
 // helper: remove keys whose value === undefined
 const clean = obj =>
   Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
@@ -188,15 +222,17 @@ app.post('/add',csrfProtection, async (req, res) => {
 });
 
 /* Edit form */
-app.get('/edit', withCsrf,async (req, res) => {
-  if (!req.isAuthenticated()) return res.redirect('/');
-  const book = await getBook(req.user.id, req.query.id);
-  if (!book) return res.status(404).send('Not found');
-book.end_date = book.end_date
-  ? book.end_date.toDate().toISOString().slice(0, 10)
-  : '';
+if (!USE_REACT) {
+  app.get('/edit', withCsrf,async (req, res) => {
+    if (!req.isAuthenticated()) return res.redirect('/');
+    const book = await getBook(req.user.id, req.query.id);
+    if (!book) return res.status(404).send('Not found');
+    book.end_date = book.end_date
+      ? book.end_date.toDate().toISOString().slice(0, 10)
+      : '';
     res.render('edit.ejs', { book });
-});
+  });
+}
 
 /* Edit save */
 app.post('/edit',csrfProtection, async (req, res) => {
@@ -219,13 +255,15 @@ app.post('/delete',csrfProtection, async (req, res) => {
 });
 
 /* Continue view (read-only) */
-app.get('/continue', withCsrf,async (req, res) => {
-  if (!req.isAuthenticated()) return res.redirect('/');
-  const book = await getBook(req.user.id, req.query.id);
-  if (!book) return res.status(404).send('Not found');
-book.end_date = book.end_date ? book.end_date.toDate().toISOString().slice(0, 10): ''; 
-   res.render('continue.ejs', { book });
-});
+if (!USE_REACT) {
+  app.get('/continue', withCsrf,async (req, res) => {
+    if (!req.isAuthenticated()) return res.redirect('/');
+    const book = await getBook(req.user.id, req.query.id);
+    if (!book) return res.status(404).send('Not found');
+    book.end_date = book.end_date ? book.end_date.toDate().toISOString().slice(0, 10): '';
+    res.render('continue.ejs', { book });
+  });
+}
 
 /*────────────────────────── . Passport strategies ──────────────*/
 passport.use('local', new LocalStrategy(async (username, password, cb) => {
@@ -242,7 +280,12 @@ app.post('/login', csrfProtection,loginLimiter, (req, res, next) => {
     if (err || !user) return res.redirect('/login');
     req.session.regenerate(e => {
       if (e) return next(e);
-      req.login(user, e2 => (e2 ? next(e2) : res.redirect('/books')));
+      req.login(user, e2 => {
+        if (e2) return next(e2);
+        const wantsJson = req.headers.accept?.includes('application/json') || req.is('application/json');
+        if (wantsJson) return res.json({ ok: true });
+        return res.redirect('/books');
+      });
     });
   })(req, res, next);
 });
@@ -261,11 +304,15 @@ app.post('/register',csrfProtection, async (req, res) => {
   await firestore.collection('users').doc(email).set({ email, password: hash });
   const user = { id: email, email };
 
-  req.session.regenerate(err =>
-    err
-      ? res.status(500).send('Session error')
-      : req.login(user, e => (e ? res.status(500).send('Login error') : res.redirect('/books'))),
-  );
+  req.session.regenerate(err => {
+    if (err) return res.status(500).send('Session error');
+    req.login(user, e => {
+      if (e) return res.status(500).send('Login error');
+      const wantsJson = req.headers.accept?.includes('application/json') || req.is('application/json');
+      if (wantsJson) return res.json({ ok: true });
+      return res.redirect('/books');
+    });
+  });
 });
 
 /* Logout */
@@ -293,18 +340,108 @@ passport.serializeUser((user, cb)   => cb(null, user));
 passport.deserializeUser((user, cb) => cb(null, user));
 
 /*────────────────────────── 11. Errors & Start ───────────────────*/
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error('UNCAUGHT:', err);
-
-  
   if (res.headersSent) return;
-
-  res.status(500).send(
-    process.env.NODE_ENV === 'production'
-      ? 'Internal Server Error'
-      : String(err),
-  );
+  const wantsJson = req.path.startsWith('/api') || req.headers.accept?.includes('application/json');
+  if (wantsJson) return res.status(500).json({ error: 'Internal Server Error' });
+  res.status(500).send('Internal Server Error');
 });
 
+/*──────────────────────────── 12. JSON APIs ───────────────────────*/
+// CSRF token fetcher for SPA
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+// Session info
+app.get('/api/me', (req, res) => {
+  const user = req.user ? { id: req.user.id, email: req.user.email } : null;
+  res.json({ authenticated: !!req.user, user });
+});
+
+// Books REST API
+const ensureAuth = (req, res, next) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+};
+
+// Helper to normalize Firestore Timestamp/Date/string -> 'YYYY-MM-DD'
+function normalizeDate(v) {
+  if (!v) return '';
+  if (v && typeof v.toDate === 'function') v = v.toDate();
+  if (typeof v === 'string') v = new Date(v);
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return '';
+}
+
+const toPlainBook = b => ({
+  ...b,
+  end_date: normalizeDate(b?.end_date),
+});
+
+app.get('/api/books', ensureAuth, async (req, res) => {
+  const books = await listBooks(req.user.id);
+  res.json(books.map(({ id, ...rest }) => ({ id, ...toPlainBook(rest) })));
+});
+
+app.get('/api/books/:id', ensureAuth, async (req, res) => {
+  const book = await getBook(req.user.id, req.params.id);
+  if (!book) return res.status(404).json({ error: 'Not found' });
+  const { id, ...rest } = book;
+  res.json({ id, ...toPlainBook(rest) });
+});
+
+app.post('/api/books', ensureAuth, csrfProtection, async (req, res) => {
+  const { author_name, title, rating, introduction, notes, end_date } = req.body || {};
+  if ([author_name, title].some(v => !v)) return res.status(400).json({ error: 'Missing title or author' });
+
+  const { data } = await axios.get('https://openlibrary.org/search.json', {
+    params: { title, author: author_name, limit: 1, fields: 'cover_i' },
+  });
+  const cover = data.docs?.[0]?.cover_i ?? 0;
+
+  const ref = await addBook(req.user.id, clean({
+    title,
+    introduction,
+    notes,
+    author_name,
+    rating: (rating || rating === 0) && String(rating).trim() !== '' ? Number(rating) : undefined,
+    end_date: end_date ? new Date(end_date) : undefined,
+    cover_i: cover,
+  }));
+  res.status(201).json({ id: ref.id });
+});
+
+app.put('/api/books/:id', ensureAuth, csrfProtection, async (req, res) => {
+  const { introduction, notes, rating, end_date } = req.body || {};
+  const patch = clean({
+    introduction,
+    notes,
+    rating: (rating || rating === 0) && String(rating).trim() !== '' ? Number(rating) : undefined,
+    end_date: end_date ? new Date(end_date) : undefined,
+  });
+  await updateBook(req.user.id, req.params.id, patch);
+  res.json({ ok: true });
+});
+
+app.delete('/api/books/:id', ensureAuth, csrfProtection, async (req, res) => {
+  await deleteBook(req.user.id, req.params.id);
+  res.json({ ok: true });
+});
+
+/*──────────────────────────── 13. Serve React SPA ────────────────*/
+if (USE_REACT) {
+  const reactDist = path.join(__dirname, 'client', 'dist');
+  if (existsSync(reactDist)) {
+    app.use(express.static(reactDist));
+    // SPA fallback: serve index.html for any non-API route
+    app.get(/^(?!\/api\/).*/, (_req, res) => {
+      res.sendFile(path.join(reactDist, 'index.html'));
+    });
+  }
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+}

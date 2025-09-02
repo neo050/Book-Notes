@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    image: book-notes:prod
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - USE_REACT=true
+    restart: unless-stopped

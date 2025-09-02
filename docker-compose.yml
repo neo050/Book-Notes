@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    image: book-notes:latest
+    ports:
+      - "3000:3000"
+    # Load env vars from your local .env file (do not commit secrets)
+    env_file:
+      - .env
+    environment:
+      # Override or ensure defaults here if desired
+      - NODE_ENV=production
+      - PORT=3000
+      - USE_REACT=true
+      # Required secrets (provide via .env or here):
+      # - SESSION_SECRET=change-me
+      # - FIREBASE_SA_JSON=base64-encoded-service-account-json
+      # Optional Google OAuth:
+      # - GOOGLE_CLIENT_ID=
+      # - GOOGLE_CLIENT_SECRET=
+      # - CALL_BACK_URL=http://localhost:3000/auth/google/books
+      # - ALLOWED_GOOGLE_DOMAIN=
+    restart: unless-stopped

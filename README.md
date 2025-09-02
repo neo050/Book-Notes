@@ -1,39 +1,38 @@
 # 📚 Book‑Notes — Personal Reading Tracker + AI‑powered RAG
 
-➡️ **Live demo on Render:** [https://book-notes-o5f0.onrender.com](https://book-notes-o5f0.onrender.com)
-
 Keep track of everything you read, write notes & ratings, and—new in **v2**—ask questions about your own library through a Retrieval‑Augmented‑Generation (RAG) layer powered by **LangChain + OpenAI**.
 
-The app now stores all data in **Cloud Firestore** (server SDK) instead of PostgreSQL, runs instantly on localhost (with the Firestore Emulator) and deploys in one click to **Render** (Firestore “production” project).
+The app stores all data in **Cloud Firestore** (server SDK), runs instantly on localhost (with the Firestore Emulator), and deploys easily to **Render**. The frontend is a modern **React (Vite)** SPA that talks to a hardened **Express 5** JSON API. Docker configs are included for dev/prod.
 
 ---
 
 ## ✨ Key Features
 
-| Domain             | Highlights                                                                                                                                                                                                                                                                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain             | Highlights                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Authentication** | • Local sign‑up / login (bcrypt + Passport‑local)  <br>• Google OAuth 2.0 (Passport‑Google)  <br>• Optional domain allow‑list: `ALLOWED_GOOGLE_DOMAIN`                                                                                                                                                                                        |
-| **Security**       | • HTTPS redirect middleware  <br>• **Secure / HttpOnly / SameSite=Lax** session cookies stored in **Firestore** (`connect‑session‑firestore`)  <br>• **Helmet** CSP incl. `archive.org` cover images  <br>• **CSRF** protection (`csurf`)  <br>• **Rate‑limit** on `/login` (5 tries / 15 min)  <br>• Session rotation after login (fixation) |
+| **Security**       | • HTTPS redirect middleware  <br>• **Secure / HttpOnly / SameSite=Lax** session cookies stored in **Firestore** (custom session store)  <br>• **Helmet** CSP incl. Open Library covers  <br>• **CSRF** protection (`csurf`); SPA fetches `/api/csrf-token` and sends `x-csrf-token`  <br>• **Rate‑limit** on `/login` (5 / 15 min)  <br>• Session rotation after login (fixation) |
 | **Books**          | • Add, edit, continue, delete  <br>• Books are **scoped per‑user**  <br>• Cover fetched from Open Library                                                                                                                                                                                                                                     |
-| **AI / RAG**       | • Vector store based on **PGVector** (Postgres) *or* **Firestore** (embeddings stored as arrays)  <br>• Embeddings via **OpenAI `text‑embedding‑3‑small`**  <br>• Chunking with LangChain `RecursiveCharacterTextSplitter`  <br>• Ask free‑form questions about your own notes (beta)                                                         |
+| **AI / RAG**       | • Vector store based on **PGVector** (Postgres) *or* **Firestore** (embeddings as arrays)  <br>• Embeddings via **OpenAI `text‑embedding‑3‑small`**  <br>• Chunking with LangChain `RecursiveCharacterTextSplitter`  <br>• Ask free‑form questions about your own notes (beta)                                                                         |
 | **Data**           | • Cloud Firestore in two modes:  <br>  • **Production** – real GCP project  <br>  • **Local dev** – Firestore Emulator (no internet)                                                                                                                                                                                                          |
-| **UI**             | • Server‑side EJS templates  <br>• Bootstrap 5‑RTL – mobile first                                                                                                                                                                                                                                                                             |
-| **Ops**            | • `/health` endpoint  <br>• Central error handler (prod vs. dev)                                                                                                                                                                                                                                                                              |
+| **Frontend**       | • **React 18 (Vite)** SPA  <br>• Client‑side routing  <br>• Bootstrap 5‑RTL  <br>• Delete confirmations with in‑app modal (no browser alerts)                                                                                                                                                                                                     |
+| **Backend**        | • **Express 5** JSON API  <br>• SPA fallback for non‑`/api/*` routes  <br>• Health probe `/health`                                                                                                                                                                                                                                                   |
+| **Tests**          | • Unit + E2E (Node test runner + Supertest)  <br>• In‑memory Firestore for tests  <br>• Optional load test profile (Artillery)                                                                                                                                                                                                                     |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer         | Tech                                                         |
-| ------------- | ------------------------------------------------------------ |
-| **Runtime**   | Node 20, Express 5                                           |
-| **Auth**      | Passport‑local, Passport‑Google, bcrypt                      |
-| **Security**  | Helmet, csurf, express‑rate‑limit, connect‑session‑firestore |
-| **DB**        | Cloud Firestore (server SDK) + Firestore Emulator            |
-| **AI / RAG**  | LangChain, OpenAI Embeddings, PGVector (optional)            |
-| **Views**     | EJS, Bootstrap 5‑RTL                                         |
-| **Dev Tools** | Nodemon, dotenv, Firebase CLI                                |
-| **Deploy**    | Render (Web Service) + Firebase project                      |
+| Layer         | Tech                                                     |
+| ------------- | -------------------------------------------------------- |
+| **Runtime**   | Node 20, Express 5                                       |
+| **Auth**      | Passport‑local, Passport‑Google‑OAuth2, bcrypt           |
+| **Security**  | Helmet, csurf, express‑rate‑limit                         |
+| **Data**      | Cloud Firestore (server SDK) + Firestore Emulator        |
+| **AI / RAG**  | LangChain, OpenAI Embeddings, PGVector (optional)        |
+| **Frontend**  | React 18 + Vite, React‑Router, Bootstrap 5‑RTL           |
+| **Dev Tools** | Nodemon, dotenv, Firebase CLI, Node test runner, Supertest |
+| **Ops**       | Dockerfile + docker‑compose (dev/prod), Health checks    |
 
 ---
 
@@ -41,112 +40,161 @@ The app now stores all data in **Cloud Firestore** (server SDK) instead of Post
 
 ```bash
 # 1 Clone
-$ git clone https://github.com/neo050/Book-Notes.git
-$ cd Book-Notes
+git clone https://github.com/neo050/Book-Notes.git
+cd Book-Notes
 
 # 2 Install deps
-$ npm install
+npm install
+cd client && npm install && cd ..
 
-# 3 Environment
-$ cp .env.example .env           # edit values (OpenAI key, Google key, etc.)
+# 3 Environment (copy + edit)
+cp .env.example .env
 
-# 4 Start Firestore Emulator (new terminal)
-$ npm run dev:emu                # wraps: firebase emulators:start --only firestore
+# 4 Run API (port 3000)
+npm run dev
 
-# 5 Run app (second terminal)
-$ npm run dev:api                # nodemon + env pointing at emulator
+# 5 Start Firestore Emulator (optional, new terminal)
+# If you use Firebase CLI
+# firebase emulators:start --only firestore --project book-notes-dev
 
-# 6 Open
-👉 http://localhost:3000
+# 6 Run API (points to emulator if FIRESTORE_EMULATOR_HOST is set)
+npm run dev
+
+# 7 Run React dev server (port 5173, proxied to API)
+cd client && npm run dev
+
+# 8 Open React app
+👉 http://localhost:5173
 ```
 
-> **Prerequisites:** Node 18+, Firebase CLI ≥ 14, and an OpenAI API key if you want RAG locally.
+> Prerequisites: Node 18+, Firebase CLI (for emulator), Google OAuth Client ID/Secret. For dev, set `CALL_BACK_URL=http://localhost:3000/auth/google/books`.
 
-\### `.env.example`
+---
+
+## 🐳 Docker
+
+Builds React client and serves it via Express.
+
+```bash
+# Production‑like locally (uses .env.production)
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
+
+# App is on http://localhost:3000
+```
+
+Dev compose (optional): use `docker-compose.yml` and your `.env`. If you run a local Firestore emulator on the host, set `FIRESTORE_EMULATOR_HOST=host.docker.internal:9080` so the container can reach it.
+
+---
+
+## 🔧 Configuration
+
+Minimal variables (dev/prod):
 
 ```ini
-# --------------------------------------------------------------------
-# Server
-PORT=3000
-SESSION_SECRET=change‑me‑please
+SESSION_SECRET=change-me
+USE_REACT=true
 
-# --------------------------------------------------------------------
-# Firestore (prod)
-GOOGLE_APPLICATION_CREDENTIALS=/full/path/serviceAccount.json
-# Firestore (local/dev) — automatically set by npm run dev
-FIRESTORE_EMULATOR_HOST=127.0.0.1:9080
-
-# --------------------------------------------------------------------
 # Google OAuth
 GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=xxxxxxxx
 CALL_BACK_URL=http://localhost:3000/auth/google/books
 ALLOWED_GOOGLE_DOMAIN=
 
-# --------------------------------------------------------------------
-# OpenAI – for RAG features
-OPENAI_API_KEY=sk‑...
+# Firestore (choose one)
+# 1) Cloud: provide FIREBASE_SA_JSON (Base64 of service account JSON)
+FIREBASE_SA_JSON=...base64...
+# 2) Emulator: set FIRESTORE_EMULATOR_HOST (e.g. localhost:9080)
+# FIRESTORE_EMULATOR_HOST=localhost:9080
+
+# RAG (optional)
+OPENAI_API_KEY=sk-...
 ```
+
+In tests we use an in‑memory Firestore automatically (`NODE_ENV=test`).
 
 ---
 
-## 🔀 Running with the Firestore Emulator
+## 📑 Endpoint Overview
+
+| Verb | Path                 | Auth | Purpose                         |
+| ---- | -------------------- | ---- | ------------------------------- |
+| GET  | `/health`            | –    | Liveness probe                  |
+| GET  | `/api/csrf-token`    | –    | Get CSRF token for SPA          |
+| GET  | `/api/me`            | –    | Session info `{authenticated}`  |
+| GET  | `/api/books`         | ✓    | List user’s books               |
+| GET  | `/api/books/:id`     | ✓    | Get a book                      |
+| POST | `/api/books`         | ✓    | Create (JSON + CSRF)            |
+| PUT  | `/api/books/:id`     | ✓    | Update (JSON + CSRF)            |
+| DEL  | `/api/books/:id`     | ✓    | Delete (JSON + CSRF)            |
+| GET  | `/auth/google`       | –    | Google consent                  |
+| GET  | `/auth/google/books` | –    | Google callback                 |
+| POST | `/ask`               | ✓    | RAG question (beta)             |
+
+SPA routes (React) are served for any non‑`/api/*` path when `client/dist` exists.
+
+---
+
+## 🔐 Security Highlights
+
+* **HTTPS enforcement** (when behind proxy)
+* **Secure/HttpOnly/SameSite=Lax cookies** (`secure:'auto'`)
+* **Session store in Firestore** (custom store), memory store in tests
+* **Helmet** CSP with Open Library cover domains
+* **CSRF protection** (`csurf`); SPA fetches `/api/csrf-token` and sends `x-csrf-token`
+* **Rate‑limit** on `/login` (5 attempts / 15 min)
+* **Session fixation** mitigation via `req.session.regenerate()`
+
+---
+
+## 🧪 Tests
 
 ```bash
-# one‑liner that runs both emulator and API in parallel
-$ npm run dev           # `npm-run-all -p dev:emu dev:api`
+# Run all unit + E2E tests (Node test runner)
+npm test
+
+# Load test (Artillery) — use with care
+npx artillery run load/artillery.yml
 ```
 
-The app auto‑detects the emulator via `FIRESTORE_EMULATOR_HOST`. No data ever leaves your machine.
+Highlights:
+– In‑memory Firestore in tests (`NODE_ENV=test`) for fast, hermetic runs.
+– E2E (`test/api.e2e.test.js`) covers login, CSRF, full CRUD.
+– Optional load profile `load/artillery.yml` (warm‑up, ramp, 10k spike).
 
 ---
 
-## ☁️ Deploy to Render
+## ☁️ Deploy
 
-1. **Add your Firebase service‑account JSON** as an environment variable:
-   `FIREBASE_SA_JSON = $(base64 < serviceAccount.json)`
-2. Set `GOOGLE_APPLICATION_CREDENTIALS=ignored.json` (any non‑empty value to disable emulator).
-3. Add `SESSION_SECRET`, `OPENAI_API_KEY`, Google OAuth vars, etc.
-4. Build Cmd: `npm install`   Start Cmd: `node index.js`
-5. Health Check: `/health` (+ enable **Force HTTPS**).
+Any Node host or container platform works. For Docker:
 
-Render connects to the same Firestore project your service‑account belongs to.
+1. Build client + server with the provided `Dockerfile`.
+2. Use `docker-compose.prod.yml` and a `.env.production` containing production secrets.
+3. Set Google OAuth **Authorized redirect URI** to your domain, e.g. `https://your-domain.com/auth/google/books`.
 
 ---
 
-## 🧠 RAG Internals (beta)
+## 🧾 Scripts
 
+```json
+"scripts": {
+  "dev":   "cross-env FIRESTORE_EMULATOR_HOST=127.0.0.1:9080 GCLOUD_PROJECT=book-notes-dev nodemon index.js",
+  "start": "node index.js",
+  "test":  "node --test --experimental-test-module-mocks"
+}
 ```
-┌─────────────┐              ┌──────────────────┐
-│  Book note  │──TXT────────▶│ LangChain splitter│
-└─────────────┘  chunks      └──────────────────┘
-        │                                 │
-        ▼                                 ▼
-┌──────────────────┐           ┌────────────────────┐
-│ OpenAI Embedding │  vectors  │   Vector store     │
-└──────────────────┘──────────▶│  (pgvector / fs)   │
-                                └────────────────────┘
-```
-
-* Each note is chunked (\~1 kB / 200 overlap) and embedded.
-* Embeddings + metadata (`book_id`, `chunk_idx`) are upserted.
-* PGVector is used in production (Render Postgres). For full‑serverless you can switch to an **array field in Firestore**; a helper wrapper is provided in `services/rag/storeFirestore.js`.
-* The `/ask` route performs similarity search + LLM answer (streamed).
 
 ---
 
 ## 🤝 Acknowledgements
 
-* **Open Library** – cover API & search
-* **OpenAI** – embeddings & LLMs
-* **LangChain** – RAG toolkit
-* **Firebase** – Firestore + Emulator
-* **Render.com** – free hosting
+* Open Library – cover & search API
+* React, Vite, React Router – frontend stack
+* Passport + bcrypt – auth stack
+* Helmet, csurf, express‑rate‑limit – security middleware
 
 ---
 
 ## 📄 License
 
-MIT — © 2025 Neoray
-
-> **Note on data stores:** RAG embeddings & search are persisted in **PostgreSQL + pgvector**, while the main application data (users & books) continue to live in **Firestore** – giving the project a clear two‑database architecture optimised for each workload.
+MIT — © 2025 Neoray
