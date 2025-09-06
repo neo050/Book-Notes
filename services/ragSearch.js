@@ -2,27 +2,52 @@ import axios from 'axios';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
 import pgvector from 'pgvector/pg';
-const { Vector } = pgvector;
+const { toSql, registerType } = pgvector;
+import crypto from 'node:crypto';
 import pLimit from 'p-limit';
 import { z, ZodError } from 'zod';
 import { remove as removeDiacritics } from 'diacritics';
 import OpenAI from 'openai';
-import { ragRequests, ragPhaseDuration, ragCacheHits, ragCacheMisses, ragAnalyzeRuns } from '../utils/metrics.js';
+import { ragRequests, ragPhaseDuration, ragCacheHits, ragCacheMisses, ragAnalyzeRuns, ragDbShortcircuitHits, ragFinalResultCacheHits, ragEmbedSkipped, ragEmbedBatched, ragRerankTimeouts } from '../utils/metrics.js';
+
+const EMBED_MODEL = process.env.EMBED_MODEL || 'text-embedding-3-small';
+const EMBED_DIM   = Number(process.env.EMBED_DIM || 1536);
 
 const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
+// teach pg about 'vector' once per pool
+let PGVECTOR_TYPES_READY = false;
+async function ensurePgvectorTypes() {
+  if (!pool || PGVECTOR_TYPES_READY) return;
+  try {
+    await registerType(pool);
+    PGVECTOR_TYPES_READY = true;
+  } catch {
+    // ignore; we will retry on next call
+  }
+}
+
+async function safeRedisGet(key) {
+  if (!redis) return null;
+  try { return await redis.get(key); } catch { return null; }
+}
+async function safeRedisSet(key, val, ttlSec) {
+  if (!redis) return;
+  try { await redis.set(key, val, 'EX', ttlSec); } catch {}
+}
+
 async function cachedJson(key, ttlSec, fn) {
   if (redis) {
-    const hit = await redis.get(key);
+    const hit = await safeRedisGet(key);
     if (hit) {
       if (key.includes('openlibrary.org/search.json')) ragCacheHits.labels('ol_search').inc();
       else if (key.includes('/works/')) ragCacheHits.labels('work').inc();
       return JSON.parse(hit);
     }
     const val = await fn();
-    await redis.set(key, JSON.stringify(val), 'EX', ttlSec);
+    await safeRedisSet(key, JSON.stringify(val), ttlSec);
     if (key.includes('openlibrary.org/search.json')) ragCacheMisses.labels('ol_search').inc();
     else if (key.includes('/works/')) ragCacheMisses.labels('work').inc();
     return val;
@@ -31,14 +56,21 @@ async function cachedJson(key, ttlSec, fn) {
 }
 
 function normalizeQuery(q) {
-  return removeDiacritics(String(q || '').trim());
+  return removeDiacritics(String(q || '').trim().toLowerCase());
 }
 
 function looksHebrew(q) {
   return /[\u0590-\u05FF]/.test(q);
 }
 
+const sha1 = s => crypto.createHash('sha1').update(String(s)).digest('hex');
+
 async function expandQueryLLM(userQ) {
+  const ck = `rag:v1:expand:${sha1(userQ)}`;
+  try {
+    const hit = await safeRedisGet(ck);
+    if (hit) return JSON.parse(hit);
+  } catch {}
   if (!openai) {
     return { primaryQuery: userQ, titleHints: [], authorHints: [], keywords: [], englishQuery: looksHebrew(userQ) ? userQ : undefined };
   }
@@ -63,6 +95,7 @@ async function expandQueryLLM(userQ) {
       });
       out.englishQuery = tr.choices[0]?.message?.content?.trim();
     }
+    try { await safeRedisSet(ck, JSON.stringify(out), 86400); } catch {}
     return out;
   } catch {
     return { primaryQuery: userQ, titleHints: [], authorHints: [], keywords: [], englishQuery: looksHebrew(userQ) ? userQ : undefined };
@@ -71,12 +104,14 @@ async function expandQueryLLM(userQ) {
 
 function buildVariants(hints, lang) {
   const base = { fields: 'key,title,author_name,first_publish_year,language,cover_i,has_fulltext,public_scan_b,ia', limit: 60 };
-  const Qs = [];
+  let Qs = [];
   Qs.push(hints.englishQuery || hints.primaryQuery);
   hints.titleHints.forEach(t => Qs.push(`title:${t}`));
   hints.authorHints.forEach(a => Qs.push(`author:${a}`));
   if (hints.keywords?.length) Qs.push(hints.keywords.join(' '));
-  const params = Qs.map(q => ({ ...base, q, ...(lang ? { lang } : {}) }));
+  // Apply language constraint inside the query (OpenLibrary ignores a 'lang' param)
+  if (lang) Qs = Qs.map(q => `${q} language:${lang}`);
+  const params = Qs.map(q => ({ ...base, q }));
   // de-duplicate
   const seen = new Set();
   const uniq = [];
@@ -108,7 +143,13 @@ function mapDoc(doc, enriched) {
   const authors = Array.isArray(doc.author_name) ? doc.author_name : [];
   const description = typeof enriched?.description === 'string' ? enriched.description : (enriched?.description?.value || null);
   const subjects = Array.isArray(enriched?.subjects) ? enriched.subjects : (doc.subject || []);
-  const languages = Array.isArray(doc.language) ? doc.language : (enriched?.languages || []);
+  // Normalize languages to ISO codes, e.g. 'heb', 'eng'
+  const languagesFromWork = Array.isArray(enriched?.languages)
+    ? enriched.languages
+        .map(x => typeof x === 'string' ? x : (x?.key?.split('/').pop() ?? null))
+        .filter(Boolean)
+    : [];
+  const languages = Array.isArray(doc.language) ? doc.language : languagesFromWork;
   const ia = Array.isArray(doc.ia) ? doc.ia : [];
   return {
     work_key,
@@ -127,88 +168,155 @@ function mapDoc(doc, enriched) {
   };
 }
 
-async function ensureSchema() {
+export async function ensureSchema() {
   if (!pool) return;
-  const sql = `
-  CREATE EXTENSION IF NOT EXISTS vector;
-  CREATE TABLE IF NOT EXISTS books (
-    work_key TEXT PRIMARY KEY,
-    title TEXT,
-    authors TEXT[],
-    first_publish_year INT,
-    languages TEXT[],
-    subjects TEXT[],
-    description TEXT,
-    edition_key TEXT,
-    cover_i INT,
-    has_fulltext BOOLEAN,
-    public_scan BOOLEAN,
-    ia TEXT[],
-    metadata JSONB,
-    embedding VECTOR(1536)
-  );
-  DO $$ BEGIN
-    CREATE INDEX books_vec_idx ON books USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-  EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-  ALTER TABLE books
-    ADD COLUMN IF NOT EXISTS tsv tsvector;
-  CREATE OR REPLACE FUNCTION books_tsv_update() RETURNS trigger AS $$
-  BEGIN
-    NEW.tsv := to_tsvector('simple',
-      coalesce(NEW.title,'') || ' ' ||
-      array_to_string(NEW.authors,' ') || ' ' ||
-      coalesce(NEW.description,'') || ' ' ||
-      array_to_string(NEW.subjects,' ')
-    );
-    RETURN NEW;
-  END
-  $$ LANGUAGE plpgsql;
-  DO $$ BEGIN
-    CREATE TRIGGER books_tsv_trg
-    BEFORE INSERT OR UPDATE ON books
-    FOR EACH ROW EXECUTE FUNCTION books_tsv_update();
-  EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-  CREATE INDEX IF NOT EXISTS books_tsv_idx ON books USING gin (tsv);`;
+  await ensurePgvectorTypes();
   const client = await pool.connect();
-  try { await client.query(sql); } finally { client.release(); }
+  try {
+    try { await client.query(`CREATE EXTENSION IF NOT EXISTS vector`); } catch {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS books (
+        work_key TEXT PRIMARY KEY,
+        title TEXT,
+        authors TEXT[],
+        first_publish_year INT,
+        languages TEXT[],
+        subjects TEXT[],
+        description TEXT,
+        edition_key TEXT,
+        cover_i INT,
+        has_fulltext BOOLEAN,
+        public_scan BOOLEAN,
+        ia TEXT[],
+        metadata JSONB,
+        embedding VECTOR(${EMBED_DIM})
+      )`);
+
+    await client.query(`
+      DO $$ BEGIN
+        BEGIN
+          CREATE INDEX books_vec_idx ON books
+          USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+        EXCEPTION WHEN duplicate_table THEN NULL;
+        END;
+      END $$;`);
+
+    await client.query(`ALTER TABLE books ADD COLUMN IF NOT EXISTS tsv tsvector;`);
+    await client.query(`
+      CREATE OR REPLACE FUNCTION books_tsv_update() RETURNS trigger AS $$
+      BEGIN
+        NEW.tsv := to_tsvector('simple',
+          coalesce(NEW.title,'') || ' ' ||
+          array_to_string(NEW.authors,' ') || ' ' ||
+          coalesce(NEW.description,'') || ' ' ||
+          array_to_string(NEW.subjects,' ') || ' ' ||
+          array_to_string(NEW.languages,' ')
+        );
+        RETURN NEW;
+      END
+      $$ LANGUAGE plpgsql;`);
+    await client.query(`
+      DO $$ BEGIN
+        BEGIN
+          CREATE TRIGGER books_tsv_trg
+          BEFORE INSERT OR UPDATE ON books
+          FOR EACH ROW EXECUTE FUNCTION books_tsv_update();
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END;
+      END $$;`);
+    await client.query(`CREATE INDEX IF NOT EXISTS books_tsv_idx ON books USING gin (tsv);`);
+    await client.query(`ALTER TABLE books ADD COLUMN IF NOT EXISTS content_hash TEXT;`);
+
+    // Optional one-time backfill to refresh tsv including languages
+    if (process.env.TSV_BACKFILL_ON_BOOT === 'true') {
+      try { await client.query('UPDATE books SET title = title;'); } catch {}
+    }
+  } finally {
+    client.release();
+  }
 }
+
+let LAST_ANALYZE_AT = 0;
 
 async function upsertRows(rows) {
   if (!pool || rows.length === 0) return;
-  // Generate embeddings with limited concurrency
-  const limit = pLimit(4);
-  const withEmb = await Promise.all(rows.map(r => limit(async () => {
-    const text = buildDocText(r);
-    if (openai) {
-      try {
-        const emb = await openai.embeddings.create({ model: 'text-embedding-3-small', input: text });
-        return { ...r, embedding: emb.data[0].embedding };
-      } catch {
-        return { ...r, embedding: null };
-      }
-    }
-    return { ...r, embedding: null };
-  })));
+  await ensurePgvectorTypes();
+  // Compute stable content hash per row
+  const withHash = rows.map(r => ({ ...r, content_hash: crypto.createHash('md5').update(buildDocText(r)).digest('hex') }));
 
   const client = await pool.connect();
   try {
-    const cols = '(work_key,title,authors,first_publish_year,languages,subjects,description,edition_key,cover_i,has_fulltext,public_scan,ia,metadata,embedding)';
-    const valuesSql = withEmb.map((_, i) => `($${i*14+1},$${i*14+2},$${i*14+3},$${i*14+4},$${i*14+5},$${i*14+6},$${i*14+7},$${i*14+8},$${i*14+9},$${i*14+10},$${i*14+11},$${i*14+12},$${i*14+13},$${i*14+14})`).join(',');
+    // Read existing to avoid re-embedding unchanged rows
+    const keys = withHash.map(r => r.work_key);
+    const existing = await client.query(
+      `SELECT work_key, content_hash, embedding IS NOT NULL AS has_embedding FROM books WHERE work_key = ANY($1)`,
+      [keys]
+    );
+    const byKey = new Map(existing.rows.map(x => [x.work_key, x]));
+    const needsEmbed = withHash.filter(r => {
+      const ex = byKey.get(r.work_key);
+      return !ex || ex.content_hash !== r.content_hash || !ex.has_embedding;
+    });
+
+    // Batch-embed only needed
+    const embByKey = new Map();
+    if (openai && needsEmbed.length) {
+      const BATCH = 64;
+      for (let i = 0; i < needsEmbed.length; i += BATCH) {
+        const chunk = needsEmbed.slice(i, i + BATCH);
+        try {
+          const resp = await openai.embeddings.create({ model: EMBED_MODEL, input: chunk.map(r => buildDocText(r)) });
+          resp.data.forEach((e, idx) => embByKey.set(chunk[idx].work_key, e.embedding));
+        } catch {
+          // if embedding batch fails, skip; we'll keep old embeddings
+        }
+      }
+    }
+    try {
+      const skipped = Math.max(withHash.length - needsEmbed.length, 0);
+      if (skipped) ragEmbedSkipped.inc(skipped);
+      if (embByKey.size) ragEmbedBatched.inc(embByKey.size);
+    } catch {}
+
+    const finalRows = withHash.map(r => ({ ...r, embedding: embByKey.get(r.work_key) || null }));
+
+    const colsArr = ['work_key','title','authors','first_publish_year','languages','subjects','description','edition_key','cover_i','has_fulltext','public_scan','ia','metadata','embedding','content_hash'];
+    const cols = `(${colsArr.join(',')})`;
+    const valuesSql = finalRows.map((_, i) => {
+      const o = i * colsArr.length;
+      const ps = [];
+      for (let j = 1; j <= colsArr.length; j++) {
+        if (j === 14) ps.push(`$${o + j}::vector`); else ps.push(`$${o + j}`);
+      }
+      return `(${ps.join(',')})`;
+    }).join(',');
+
     const sql = `INSERT INTO books ${cols} VALUES ${valuesSql}
       ON CONFLICT (work_key) DO UPDATE SET
         title=EXCLUDED.title, authors=EXCLUDED.authors, first_publish_year=EXCLUDED.first_publish_year,
         languages=EXCLUDED.languages, subjects=EXCLUDED.subjects, description=EXCLUDED.description,
         edition_key=EXCLUDED.edition_key, cover_i=EXCLUDED.cover_i, has_fulltext=EXCLUDED.has_fulltext,
         public_scan=EXCLUDED.public_scan, ia=EXCLUDED.ia, metadata=EXCLUDED.metadata,
+        content_hash=EXCLUDED.content_hash,
         embedding=COALESCE(EXCLUDED.embedding, books.embedding)`;
+
     const params = [];
-    for (const r of withEmb) {
+    for (const r of finalRows) {
       params.push(
         r.work_key, r.title, r.authors, r.first_publish_year, r.languages, r.subjects, r.description, r.edition_key, r.cover_i, r.has_fulltext, r.public_scan, r.ia, r.metadata,
-        r.embedding ? new Vector(r.embedding) : null,
+        r.embedding ? toSql(r.embedding) : null,
+        r.content_hash,
       );
     }
+
     await client.query(sql, params);
+    const now = Date.now();
+    if (now - LAST_ANALYZE_AT > 120000) {
+      await client.query('ANALYZE books;');
+      LAST_ANALYZE_AT = now;
+      try { ragAnalyzeRuns.inc(); } catch {}
+    }
   } finally { client.release(); }
 }
 
@@ -216,8 +324,21 @@ function buildDocText(r) {
   return [r.title, (r.authors||[]).join(' '), (r.subjects||[]).join(' '), r.description || '', (r.languages||[]).join(' ')].filter(Boolean).join('\n');
 }
 
+async function getQueryEmbeddingCached(q) {
+  const ck = `rag:v1:q-emb:${sha1(q)}`;
+  try {
+    const hit = await safeRedisGet(ck);
+    if (hit) return toSql(JSON.parse(hit));
+  } catch {}
+  const emb = await openai.embeddings.create({ model: EMBED_MODEL, input: q });
+  const vec = emb.data[0].embedding;
+  try { await safeRedisSet(ck, JSON.stringify(vec), 86400); } catch {}
+  return toSql(vec);
+}
+
 async function hybridSearch(q, limit, langPref) {
   if (!pool) return [];
+  await ensurePgvectorTypes();
   const client = await pool.connect();
   try {
     const k = Math.max(limit * 3, 30);
@@ -225,15 +346,14 @@ async function hybridSearch(q, limit, langPref) {
     let vecRows = [];
     if (openai) {
       try {
-        const emb = await openai.embeddings.create({ model: 'text-embedding-3-small', input: q });
-        const v = new Vector(emb.data[0].embedding);
+        const v = await getQueryEmbeddingCached(q);
         const vecSql = `
           SELECT work_key, title, authors, first_publish_year, languages, subjects, description,
                  cover_i, has_fulltext, public_scan,
                  1 - (embedding <=> $1) AS vec_score
           FROM books
           WHERE embedding IS NOT NULL
-          ORDER BY embedding <=> $1
+          ORDER BY embedding <=> $1::vector
           LIMIT $2;`;
         const r = await client.query(vecSql, [v, k]);
         vecRows = r.rows;
@@ -289,14 +409,92 @@ async function rerankLLM(query, candidates, take) {
 
 const QuerySchema = z.object({ q: z.string().min(1), limit: z.coerce.number().int().min(1).max(25).default(10), lang: z.string().optional() });
 
+const USE_RERANK = (process.env.USE_RERANK || 'false') === 'true';
+const RERANK_TIMEOUT_MS = Number(process.env.RERANK_TIMEOUT_MS || 6000);
+
+async function maybeRerank(candidates, query, take) {
+  if (!USE_RERANK || !openai) return candidates.slice(0, take);
+  const RERANK_TAKE = 15;
+  const key = `rag:v1:rerank:${sha1(query + '|' + candidates.slice(0, RERANK_TAKE).map(c=>c.work_key).join(','))}`;
+  try {
+    const cached = await safeRedisGet(key);
+    if (cached) {
+      const order = JSON.parse(cached);
+      const dict = new Map(candidates.map(c => [c.work_key, c]));
+      const ordered = order.map(k => dict.get(k)).filter(Boolean)
+        .concat(candidates.filter(c => !order.includes(c.work_key)));
+      return ordered.slice(0, take);
+    }
+  } catch {}
+
+  const items = candidates.slice(0, RERANK_TAKE).map(c => ({ work_key: c.work_key, text: buildDocText(c).slice(0, 1800) }));
+
+  const run = async () => {
+    const sys = 'You are a ranking model. Score each item for how well it matches the user\'s intent. Return JSON {"rank":[{"work_key":string,"score":number}]}.';
+    const out = await openai.chat.completions.create({ model: 'gpt-4o-mini', temperature: 0, messages: [ { role: 'system', content: sys }, { role: 'user', content: JSON.stringify({ query, items }) } ], response_format: { type: 'json_object' } });
+    const rank = JSON.parse(out.choices[0]?.message?.content || '{}').rank || [];
+    const scoreBy = new Map(rank.map(r => [r.work_key, r.score]));
+    const ordered = candidates
+      .slice(0, RERANK_TAKE)
+      .map(c => ({ c, s: Number(scoreBy.get(c.work_key) || 0) }))
+      .sort((a,b)=> b.s - a.s)
+      .map(x => x.c)
+      .concat(candidates.slice(RERANK_TAKE));
+    const orderedKeys = ordered.map(x => x.work_key);
+    try { await safeRedisSet(key, JSON.stringify(orderedKeys), 86400); } catch {}
+    return ordered.slice(0, take);
+  };
+
+  let timeoutHit = false;
+  const timeoutPromise = new Promise(resolve => setTimeout(() => { timeoutHit = true; resolve(candidates.slice(0, take)); }, RERANK_TIMEOUT_MS));
+  const result = await Promise.race([ run(), timeoutPromise ]);
+  if (timeoutHit) { try { ragRerankTimeouts.inc(); } catch {} }
+  return result;
+}
+
 export async function handleRagSearch(req, res) {
   try {
     const reqStart = Date.now();
-    ragRequests.inc();
-    METRICS.requests++;
-    const { q, limit, lang } = QuerySchema.parse(req.query);
-    await ensureSchema();
+    ragRequests.inc();const { q, limit, lang } = QuerySchema.parse(req.query);
     const norm = normalizeQuery(q);
+    const cacheKey = `rag:v1:res:${lang||''}:${limit}:${sha1(norm)}`;
+    try {
+      const cachedRes = await safeRedisGet(cacheKey);
+      if (cachedRes) {
+        try { ragFinalResultCacheHits.inc(); } catch {}
+        return res.json(JSON.parse(cachedRes));
+      }
+    } catch {}
+
+    const langPref = lang || (looksHebrew(q) ? 'heb' : undefined);
+
+    // 2a) Try DB-first with the raw normalized query
+    let hybrid = await hybridSearch(norm, limit, langPref);
+    if (hybrid.length >= limit) {
+      const topDb = await maybeRerank(hybrid, norm, limit);
+      const dataDb = topDb.map(r => ({
+        work_key: r.work_key,
+        title: r.title,
+        authors: r.authors || [],
+        year: r.first_publish_year,
+        languages: r.languages || [],
+        subjects: r.subjects || [],
+        description: r.description,
+        cover_url: r.cover_i ? `https://covers.openlibrary.org/b/id/${r.cover_i}-L.jpg` : null,
+        openlibrary_url: `https://openlibrary.org${r.work_key}`,
+        has_fulltext: !!r.has_fulltext,
+        public_scan: !!r.public_scan,
+      }));
+      const payloadDb = { query_used: norm, suggestions: { titleHints: [], authorHints: [], keywords: [] }, results: dataDb };
+      console.info('[RAG]', {
+        q: norm.slice(0, 120),
+        ms: { total: Date.now() - reqStart, shortcircuit: true },
+        sizes: { variants: 0, docs: 0, enriched: 0, final: dataDb.length },
+      });
+      try { ragDbShortcircuitHits.inc(); } catch {}
+      try { await safeRedisSet(cacheKey, JSON.stringify(payloadDb), 900); } catch {}
+      return res.json(payloadDb);
+    }
     const tExpand0 = Date.now();
     const hints = await expandQueryLLM(norm);
     const tExpand = Date.now() - tExpand0; try { ragPhaseDuration.labels('expand').observe(tExpand/1000); } catch {}
@@ -314,21 +512,21 @@ export async function handleRagSearch(req, res) {
         if (!key || seen.has(key)) continue; seen.add(key); docs.push(d);
       }
     }
-    const enrichTop = docs.slice(0, 80);
+    const ENRICH_LIMIT = Math.max(2 * limit, 30);
+    const enrichTop = docs.slice(0, ENRICH_LIMIT);
     const lim = pLimit(8);
     const tEnrich0 = Date.now();
     const rows = await Promise.all(enrichTop.map(d => lim(async () => mapDoc(d, await olWork((d.key||'').startsWith('/works/')?d.key:`/works/${d.key}`)))));
     await upsertRows(rows);
     const tEnrich = Date.now() - tEnrich0; try { ragPhaseDuration.labels('enrich_upsert').observe(tEnrich/1000); } catch {}
 
-    const langPref = lang || (looksHebrew(q) ? 'heb' : undefined);
     const tHybrid0 = Date.now();
-    const hybrid = await hybridSearch(hints.englishQuery || hints.primaryQuery, limit, langPref);
+    hybrid = await hybridSearch(hints.englishQuery || hints.primaryQuery, limit, langPref);
     const tHybrid = Date.now() - tHybrid0; try { ragPhaseDuration.labels('hybrid').observe(tHybrid/1000); } catch {}
     const tRerank0 = Date.now();
-    const reranked = await rerankLLM(hints.englishQuery || hints.primaryQuery, hybrid, limit);
+    const top = await maybeRerank(hybrid, (hints.englishQuery || hints.primaryQuery || norm), limit);
     const tRerank = Date.now() - tRerank0; try { ragPhaseDuration.labels('rerank').observe(tRerank/1000); } catch {}
-    const data = reranked.map(r => ({
+    const data = top.map(r => ({
       work_key: r.work_key,
       title: r.title,
       authors: r.authors || [],
@@ -346,20 +544,22 @@ export async function handleRagSearch(req, res) {
     console.info('[RAG]', {
       q: norm.slice(0, 120),
       ms: { expand: tExpand, ol: tOl, enrichUpsert: tEnrich, hybrid: tHybrid, rerank: tRerank, total: Date.now() - reqStart },
-      cache: { ol_hit: METRICS.olSearchHit, ol_miss: METRICS.olSearchMiss, work_hit: METRICS.workHit, work_miss: METRICS.workMiss, requests: METRICS.requests },
+
       sizes: { variants: variants.length, docs: docs.length, enriched: rows.length, final: data.length },
     });
 
-    res.json({
+    const payload = {
       query_used: hints.englishQuery || hints.primaryQuery,
       suggestions: { titleHints: hints.titleHints, authorHints: hints.authorHints, keywords: hints.keywords },
       results: data,
-    });
+    };
+    try { await safeRedisSet(cacheKey, JSON.stringify(payload), 900); } catch {}
+    res.json(payload);
   } catch (e) {
     const isZod = e instanceof ZodError;
     const status = isZod ? 400 : 500;
     const msg = isZod ? 'Bad Request' : 'Internal Server Error';
-    try { (req.log||console).error('rag.error', { err: String(e), stack: e?.stack }); } catch {}
+    try { (req.log||console).error('rag.error', { message: String(e?.message || e), code: e?.code, detail: e?.detail, stack: e?.stack }); } catch {}
     res.status(status).json({ error: msg });
   }
 }

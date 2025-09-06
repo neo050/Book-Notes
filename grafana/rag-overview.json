@@ -1,0 +1,159 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "RAG QPS",
+      "id": 1,
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_requests_total[5m]))", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["last"] }, "orientation": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "DB Shortcircuit QPS",
+      "id": 2,
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_db_shortcircuit_hits_total[5m]))", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Final Cache Hit QPS",
+      "id": 3,
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_final_result_cache_hits_total[5m]))", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "type": "stat",
+      "title": "Rerank Timeouts QPS",
+      "id": 4,
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_rerank_timeouts_total[5m]))", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["last"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "RAG Phase p95",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(rag_phase_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{phase}} p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RAG Phase p50",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le, phase) (rate(rag_phase_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{phase}} p50",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "/api/search p95",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{route=\"/api/search\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "OL Cache Hits vs Misses (rate)",
+      "id": 8,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(rag_cache_hits_total[5m]))",
+          "legendFormat": "hit {{type}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (type) (rate(rag_cache_misses_total[5m]))",
+          "legendFormat": "miss {{type}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Embeddings Created (/min)",
+      "id": 9,
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 22 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_embed_batched_total[1m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Embeddings Skipped (/min)",
+      "id": 10,
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 22 },
+      "datasource": "$DS_PROMETHEUS",
+      "targets": [
+        { "expr": "sum(rate(rag_embed_skipped_total[1m]))", "refId": "A" }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["rag", "prometheus"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "RAG Overview",
+  "uid": "rag-overview",
+  "version": 1
+}
+

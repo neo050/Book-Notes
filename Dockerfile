@@ -1,6 +1,7 @@
-# --- Build React client ---
-FROM node:20-slim AS client-build
+# --- Build React client (bookworm, patched) ---
+FROM node:20.18.0-bookworm-slim AS client-build
 WORKDIR /app/client
+RUN apt-get update && apt-get -y upgrade && rm -rf /var/lib/apt/lists/*
 
 # Install client deps
 COPY client/package.json client/vite.config.js ./
@@ -13,23 +14,22 @@ RUN npm run build
 
 
 # --- Install server deps (with native builds) ---
-FROM node:20-slim AS server-build
+FROM node:20.18.0-bookworm-slim AS server-build
 WORKDIR /app
 
-# Build tools for native modules (bcrypt, hnswlib-node)
+# Toolchain for native modules (e.g., bcrypt)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 make g++ \
+ && apt-get -y upgrade \
  && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-# Use npm install (not ci) and ignore lifecycle scripts (postinstall) —
-# root postinstall builds the React client, but in this stage we don't copy
-# client/ yet. Client gets built in the dedicated client-build stage.
+# Option 2 (fast, tolerant to lock drift) – skip lifecycle scripts:
 RUN npm install --omit=dev --no-audit --no-fund --ignore-scripts
 
 
-# --- Runtime image ---
-FROM node:20-slim AS runner
+# --- Runtime image (Distroless, non-root) ---
+FROM gcr.io/distroless/nodejs20-debian12:nonroot AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 
@@ -37,13 +37,15 @@ WORKDIR /app
 COPY --from=server-build /app/node_modules ./node_modules
 
 # Copy server source
-COPY index.js ./
-COPY cron.js ./
-COPY utils.js ./
+COPY index.js ./index.js
+COPY utils.js ./utils.js
+COPY utils ./utils
 COPY services ./services
 COPY db ./db
 COPY public ./public
 COPY views ./views
+COPY validation ./validation
+
 
 # Copy built client
 COPY --from=client-build /app/client/dist ./client/dist
@@ -54,7 +56,8 @@ ENV PORT=3000 \
 
 EXPOSE 3000
 
+# Exec-form healthcheck (no shell in distroless)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" || exit 1
+  CMD ["node","-e","fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
-CMD ["node", "index.js"]
+CMD ["index.js"]

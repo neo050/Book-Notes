@@ -8,6 +8,7 @@ import Add from './pages/Add.jsx';
 import Edit from './pages/Edit.jsx';
 import Continue from './pages/Continue.jsx';
 import { useAuth } from './auth.jsx';
+import Search from './pages/Search.jsx';
 
 function NavBar() {
   const { authenticated } = useAuth();
@@ -17,6 +18,7 @@ function NavBar() {
         <Link className="navbar-brand" to="/">Book Notes</Link>
         <div className="navbar-nav">
           <Link className="nav-link" to="/books">MYBOOKS</Link>
+          <Link className="nav-link" to="/search">Search</Link>
         </div>
         <div className="navbar-nav ms-auto">
           {authenticated ? (
@@ -39,6 +41,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/books" element={<Books />} />
+        <Route path="/search" element={<Search />} />
         <Route path="/add" element={<Add />} />
         <Route path="/edit/:id" element={<Edit />} />
         <Route path="/continue/:id" element={<Continue />} />
