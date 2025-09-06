@@ -1,16 +1,36 @@
+### Exclude VCS and docs
+.git
+.gitignore
+README.md
+
+### Env and secrets
+.env
+.env.*
+!/.env.example
+!/.env.production.example
+project-id-firebase-adminsdk.json
+sa.b64
+docker/metrics_token
+docker/grafana_admin_user
+docker/grafana_admin_password
+k8s/**/secret*.yaml
+k8s/**/secret.yaml
+
+### Node modules and build artifacts
 node_modules
 client/node_modules
 client/.vite
 client/dist
-.git
-.gitignore
-.env
+coverage
+tmp
+
+### Unneeded dirs/files for image build
 data
 test
-README.md
+grafana
+docker
 firestore-debug.log
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-

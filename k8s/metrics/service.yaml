@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: book-notes
+  labels:
+    app: book-notes
+spec:
+  selector:
+    app: book-notes
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

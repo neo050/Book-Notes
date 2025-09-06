@@ -2,17 +2,16 @@
  * Book-Notes — Express + Firestore
  ********************************************************************/
 import 'dotenv/config';
-if (process.env.NODE_ENV !== 'test') {
-  await import('./cron.js');
-}
 import express           from 'express';
 import path              from 'path';
 import { fileURLToPath } from 'url';
 import bodyParser        from 'body-parser';
 import helmet            from 'helmet';
 import csurf             from 'csurf';
-import rateLimit         from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import { existsSync }    from 'node:fs';
+import { logger }        from './utils/logger.js';
+import { randomUUID }    from 'node:crypto';
 
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
@@ -27,6 +26,8 @@ import {
   listBooks, getBook, addBook, updateBook, deleteBook,
 } from './services/books.js';
 import { searchWorks } from './services/olSearch.js';
+import { handleRagSearch, ensureSchema } from './services/ragSearch.js';
+import { UpdateBookSchema } from './validation/schemas.js';
 
 
 
@@ -57,6 +58,21 @@ app.use(session({
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+
+// Request correlation + structured logging
+app.use((req, res, next) => {
+  const reqId = req.headers['x-request-id'] || randomUUID();
+  req.id = reqId;
+  const start = Date.now();
+  const child = logger.child({ component: 'http', reqId, method: req.method, url: req.originalUrl });
+  req.log = child;
+  child.info('request.start', { ip: req.ip, ua: req.headers['user-agent'] });
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    child.info('request.finish', { status: res.statusCode, ms, length: res.getHeader('content-length') });
+  });
+  next();
+});
 
 
 /*──────────────────────────── 6. CSRF & helpers ───────────────────*/
@@ -127,19 +143,28 @@ app.use('/js',  express.static(path.join(__dirname, 'node_modules/bootstrap/dist
 app.use(passport.initialize());
 app.use(passport.session());
 
-
-
-/*──────────────────────────── 4. Logger ──────────────────────────*/
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
+// Ensure DB schema (vector + FTS) on startup
+await ensureSchema();
 
 /*──────────────────────────── 5. Routes (no-CSRF) ────────────────*/
-app.get('/health', (_req, res) => res.sendStatus(200));
+app.get('/health', (req, res) => { (req.log||console).info('health.ping'); res.sendStatus(200); });
+// Prometheus metrics
+import { register, httpRequestDuration, routeLabel } from './utils/metrics.js';
+import { authorizeMetrics } from './utils/secure.js';
+// Strictly protected metrics endpoint (Bearer token + optional IP allowlist)
+const metricsLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 });
+app.get('/metrics', authorizeMetrics, metricsLimiter, async (_req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch {
+    res.status(500).send('metrics error');
+  }
+});
 
 /* Google OAuth */
 app.get('/auth/google',
+  (req, _res, next) => { console.log('auth.google.start'); next(); },
   passport.authenticate('google', { scope: ['profile', 'email'] }),
 );
 app.get('/auth/google/books', (req, res, next) => {
@@ -163,9 +188,9 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
 
 /*──────────────────────────── 8. View routes ──────────────────────*/
 if (!USE_REACT) {
-  app.get('/',       withCsrf,    (_r, res) => res.render('home.ejs'));
-  app.get('/login',  withCsrf ,   (_r, res) => res.render('login.ejs'));
-  app.get('/register',  withCsrf, (_r, res) => res.render('register.ejs'));
+  app.get('/',       withCsrf,    (req, res) => { (req.log||console).info('view.home'); res.render('home.ejs'); });
+  app.get('/login',  withCsrf ,   (req, res) => { (req.log||console).info('view.login'); res.render('login.ejs'); });
+  app.get('/register',  withCsrf, (req, res) => { (req.log||console).info('view.register'); res.render('register.ejs'); });
 
   /* Books list */
   app.get('/books',withCsrf, async (req, res) => {
@@ -174,20 +199,24 @@ if (!USE_REACT) {
     books.forEach(b => b.end_date = b.end_date
      ? b.end_date.toDate().toISOString().slice(0, 10)
      : '');
+    (req.log||console).info('view.books', { count: books.length });
     res.render('books.ejs', { books });
   });
 
   /* Add form */
-  app.get('/add',withCsrf, (req, res) =>
-    req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login'));
+  app.get('/add',withCsrf, (req, res) => {
+    (req.log||console).info('view.add');
+    return req.isAuthenticated() ? res.render('add.ejs') : res.redirect('/login');
+  });
 }
 
 
 //  Semantic search helper
 app.get('/api/ol-search', async (req, res) => {
-  const { q } = req.query;
+  const { q, lang } = req.query;
   if (!q) return res.status(400).send('q missing');
-  const hits = await searchWorks(q);
+  const hits = await searchWorks(q, { lang });
+  (req.log||console).info('api.ol.search', { q: String(q).slice(0,120), hits: hits.length });
   res.json(hits);
 });
 // helper: remove keys whose value === undefined
@@ -208,16 +237,18 @@ app.post('/add',csrfProtection, async (req, res) => {
   });
   const cover = data.docs?.[0]?.cover_i ?? 0;
 
-  await addBook(req.user.id, clean({
+  const payload = clean({
     title: book_name,
     introduction,
     notes,
     author_name,
-    rating: rating ? Number(rating) : undefined,
+    rating: (rating || rating === 0) && String(rating).trim() !== '' ? Number(rating) : undefined,
     end_date: end_date ? new Date(end_date) : undefined,
     cover_i: cover,
-  }));
-
+  });
+  (req.log||console).info('form.add.submit', { title: payload.title, author: payload.author_name });
+  await addBook(req.user.id, payload);
+  (req.log||console).info('form.add.saved');
   res.redirect('/books');
 });
 
@@ -230,6 +261,7 @@ if (!USE_REACT) {
     book.end_date = book.end_date
       ? book.end_date.toDate().toISOString().slice(0, 10)
       : '';
+    (req.log||console).info('view.edit', { id: req.query.id });
     res.render('edit.ejs', { book });
   });
 }
@@ -241,9 +273,10 @@ app.post('/edit',csrfProtection, async (req, res) => {
   await updateBook(req.user.id, id, clean({
     introduction,
     notes,
-     rating: rating ? Number(rating) : undefined,
+    rating: (rating || rating === 0) && String(rating).trim() !== '' ? Number(rating) : undefined,
     end_date: end_date ? new Date(end_date) : undefined,
   }));
+  (req.log||console).info('form.edit.saved', { id });
   res.redirect('/books');
 });
 
@@ -251,6 +284,7 @@ app.post('/edit',csrfProtection, async (req, res) => {
 app.post('/delete',csrfProtection, async (req, res) => {
   if (!req.isAuthenticated()) return res.redirect('/');
   await deleteBook(req.user.id, req.body.id);
+  (req.log||console).info('form.delete.saved', { id: req.body.id });
   res.redirect('/books');
 });
 
@@ -261,6 +295,7 @@ if (!USE_REACT) {
     const book = await getBook(req.user.id, req.query.id);
     if (!book) return res.status(404).send('Not found');
     book.end_date = book.end_date ? book.end_date.toDate().toISOString().slice(0, 10): '';
+    (req.log||console).info('view.continue', { id: req.query.id });
     res.render('continue.ejs', { book });
   });
 }
@@ -277,12 +312,13 @@ passport.use('local', new LocalStrategy(async (username, password, cb) => {
 /*────────────────────────── 9. Auth handlers ─────────────────────*/
 app.post('/login', csrfProtection,loginLimiter, (req, res, next) => {
   passport.authenticate('local', (err, user) => {
-    if (err || !user) return res.redirect('/login');
+    if (err || !user) { console.warn('auth.local.failed'); return res.redirect('/login'); }
     req.session.regenerate(e => {
       if (e) return next(e);
       req.login(user, e2 => {
         if (e2) return next(e2);
         const wantsJson = req.headers.accept?.includes('application/json') || req.is('application/json');
+        console.log('auth.local.success', user.id);
         if (wantsJson) return res.json({ ok: true });
         return res.redirect('/books');
       });
@@ -317,7 +353,7 @@ app.post('/register',csrfProtection, async (req, res) => {
 
 /* Logout */
 app.get('/logout', (req, res) =>
-  req.logout(err => { if (err) console.error(err); res.redirect('/'); }));
+  req.logout(err => { if (err) console.error(err); console.log('auth.logout.success'); res.redirect('/'); }));
 
 
 
@@ -341,7 +377,12 @@ passport.deserializeUser((user, cb) => cb(null, user));
 
 /*────────────────────────── 11. Errors & Start ───────────────────*/
 app.use((err, req, res, _next) => {
-  console.error('UNCAUGHT:', err);
+  (req?.log || logger).error('uncaught.error', {
+    message: String(err?.message || err),
+    code: err?.code,
+    detail: err?.detail,
+    stack: err?.stack,
+  });
   if (res.headersSent) return;
   const wantsJson = req.path.startsWith('/api') || req.headers.accept?.includes('application/json');
   if (wantsJson) return res.status(500).json({ error: 'Internal Server Error' });
@@ -414,14 +455,20 @@ app.post('/api/books', ensureAuth, csrfProtection, async (req, res) => {
 });
 
 app.put('/api/books/:id', ensureAuth, csrfProtection, async (req, res) => {
-  const { introduction, notes, rating, end_date } = req.body || {};
-  const patch = clean({
+  // Coerce rating to number when provided; normalize end_date to Date
+  const { introduction, notes, rating, end_date, ...rest } = req.body || {};
+  const patchRaw = clean({
+    ...rest,
     introduction,
     notes,
     rating: (rating || rating === 0) && String(rating).trim() !== '' ? Number(rating) : undefined,
     end_date: end_date ? new Date(end_date) : undefined,
   });
-  await updateBook(req.user.id, req.params.id, patch);
+
+  const parsed = UpdateBookSchema.safeParse(patchRaw);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+
+  await updateBook(req.user.id, req.params.id, parsed.data);
   res.json({ ok: true });
 });
 
@@ -441,6 +488,12 @@ if (USE_REACT) {
     });
   }
 }
+
+// RAG search — returns rich results; require auth consistent with app
+app.get('/api/search', ensureAuth, async (req, res) => {
+  (req.log||console).info('api.rag.search.start', { q: String(req.query?.q||'').slice(0,120) });
+  await handleRagSearch(req, res);
+});
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
