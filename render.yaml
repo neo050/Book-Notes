@@ -3,7 +3,7 @@ services:
     name: book-notes
     env: node
     plan: free
-    buildCommand: npm ci && npm run build:client || true
+    buildCommand: npm ci && npm run build:client
     startCommand: node index.js
     autoDeploy: true
     envVars:
