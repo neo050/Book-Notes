@@ -130,8 +130,16 @@ app.use(
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
+const envAllowsReact = USE_REACT;
+const clientDistPath = path.join(__dirname, 'client', 'dist');
+const hasClientBuild = existsSync(clientDistPath);
 // Only enable React SPA if a build exists (unless explicitly disabled)
-USE_REACT = USE_REACT && existsSync(path.join(__dirname, 'client', 'dist'));
+USE_REACT = envAllowsReact && hasClientBuild;
+const bootLogger = logger ?? console;
+bootLogger.info('startup.renderer', { envAllowsReact, hasClientBuild, mode: USE_REACT ? 'react' : 'ejs' });
+if (envAllowsReact && !hasClientBuild) {
+  bootLogger.warn('startup.react-missing-build', { clientDistPath });
+}
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));

@@ -13,7 +13,22 @@ import { ragRequests, ragPhaseDuration, ragCacheHits, ragCacheMisses, ragAnalyze
 const EMBED_MODEL = process.env.EMBED_MODEL || 'text-embedding-3-small';
 const EMBED_DIM   = Number(process.env.EMBED_DIM || 1536);
 
-const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
+const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL, {
+  // Upstash requires TLS (use rediss://). Add tls automatically when scheme is rediss
+  tls: (process.env.REDIS_URL || '').startsWith('rediss://') ? {} : undefined,
+  // Reduce noisy retries; fail fast and let app continue without cache
+  maxRetriesPerRequest: 2,
+  enableOfflineQueue: false,
+  retryStrategy: (times) => Math.min(times * 500, 2000),
+}) : null;
+// Avoid process crashes when Redis is unreachable or misconfigured
+if (redis) {
+  try {
+    redis.on('error', (err) => {
+      try { console.warn('[RAG] redis error:', err?.message || String(err)); } catch {}
+    });
+  } catch {}
+}
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
@@ -171,9 +186,14 @@ function mapDoc(doc, enriched) {
 export async function ensureSchema() {
   if (!pool) return;
   await ensurePgvectorTypes();
-  const client = await pool.connect();
+  let client;
   try {
-    try { await client.query(`CREATE EXTENSION IF NOT EXISTS vector`); } catch {}
+    try { client = await pool.connect(); } catch (e) {
+      try { console.warn('[RAG] postgres connect failed; skipping schema:', e?.message || String(e)); } catch {}
+      return;
+    }
+    try {
+      try { await client.query(`CREATE EXTENSION IF NOT EXISTS vector`); } catch {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS books (
@@ -232,9 +252,10 @@ export async function ensureSchema() {
     if (process.env.TSV_BACKFILL_ON_BOOT === 'true') {
       try { await client.query('UPDATE books SET title = title;'); } catch {}
     }
-  } finally {
-    client.release();
-  }
+    } finally {
+      try { client.release(); } catch {}
+    }
+  } catch {}
 }
 
 let LAST_ANALYZE_AT = 0;
@@ -245,8 +266,9 @@ async function upsertRows(rows) {
   // Compute stable content hash per row
   const withHash = rows.map(r => ({ ...r, content_hash: crypto.createHash('md5').update(buildDocText(r)).digest('hex') }));
 
-  const client = await pool.connect();
+  let client;
   try {
+    try { client = await pool.connect(); } catch { return; }
     // Read existing to avoid re-embedding unchanged rows
     const keys = withHash.map(r => r.work_key);
     const existing = await client.query(
@@ -317,7 +339,7 @@ async function upsertRows(rows) {
       LAST_ANALYZE_AT = now;
       try { ragAnalyzeRuns.inc(); } catch {}
     }
-  } finally { client.release(); }
+  } finally { try { client.release(); } catch {} }
 }
 
 function buildDocText(r) {
@@ -339,8 +361,9 @@ async function getQueryEmbeddingCached(q) {
 async function hybridSearch(q, limit, langPref) {
   if (!pool) return [];
   await ensurePgvectorTypes();
-  const client = await pool.connect();
+  let client;
   try {
+    try { client = await pool.connect(); } catch { return []; }
     const k = Math.max(limit * 3, 30);
     // Vector side
     let vecRows = [];
@@ -385,10 +408,10 @@ async function hybridSearch(q, limit, langPref) {
       const fulltextBonus = row.has_fulltext ? 0.03 : 0;
       const coverBonus = row.cover_i ? 0.02 : 0;
       const score = (0.65 * vec) + (0.35 * fts) + langBonus + fulltextBonus + coverBonus;
-      return { ...row, score };
+      return { ...row, score, _vec: vec, _fts: fts };
     });
     return merged.sort((a,b)=> b.score - a.score).slice(0, Math.max(limit * 2, limit));
-  } finally { client.release(); }
+  } finally { try { client.release(); } catch {} }
 }
 
 async function rerankLLM(query, candidates, take) {
@@ -470,7 +493,10 @@ export async function handleRagSearch(req, res) {
 
     // 2a) Try DB-first with the raw normalized query
     let hybrid = await hybridSearch(norm, limit, langPref);
-    if (hybrid.length >= limit) {
+    const MIN_FTS_RATIO = Number(process.env.RAG_MIN_FTS_RATIO || 0.4);
+    const ftsHits = hybrid.filter(x => (x._fts || 0) > 0).length;
+    const ftsOk = hybrid.length > 0 && (ftsHits / hybrid.length) >= MIN_FTS_RATIO;
+    if (hybrid.length >= limit && ftsOk) {
       const topDb = await maybeRerank(hybrid, norm, limit);
       const dataDb = topDb.map(r => ({
         work_key: r.work_key,
@@ -490,6 +516,7 @@ export async function handleRagSearch(req, res) {
         q: norm.slice(0, 120),
         ms: { total: Date.now() - reqStart, shortcircuit: true },
         sizes: { variants: 0, docs: 0, enriched: 0, final: dataDb.length },
+        shortcircuit_reason: { ftsHits, candidates: hybrid.length, minFtsRatio: MIN_FTS_RATIO },
       });
       try { ragDbShortcircuitHits.inc(); } catch {}
       try { await safeRedisSet(cacheKey, JSON.stringify(payloadDb), 900); } catch {}
