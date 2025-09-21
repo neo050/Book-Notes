@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: book-notes
+    env: node
+    plan: free
+    buildCommand: npm ci && npm run build:client || true
+    startCommand: node index.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_REACT
+        value: "true"
+      # Fill these values in Render after importing the blueprint
+      - key: SESSION_SECRET
+        value: "change-me"
+      - key: FIREBASE_SA_JSON
+        value: "<paste-base64-service-account>"
+      - key: GOOGLE_CLIENT_ID
+        value: ""
+      - key: GOOGLE_CLIENT_SECRET
+        value: ""
+      - key: CALL_BACK_URL
+        value: "https://<your-service>.onrender.com/auth/google/books"
+      - key: DATABASE_URL
+        value: "postgresql://<user>:<pass>@<host>:5432/<db>?sslmode=require"
+      - key: REDIS_URL
+        value: "rediss://:<password>@<host>:<port>"
+      - key: OPENAI_API_KEY
+        value: ""
+      - key: EMBED_MODEL
+        value: text-embedding-3-small
+      - key: EMBED_DIM
+        value: "1536"
+      - key: USE_RERANK
+        value: "false"
+      - key: RERANK_TIMEOUT_MS
+        value: "6000"
+      - key: RAG_MIN_FTS_RATIO
+        value: "0.4"
+      - key: METRICS_TOKEN
+        value: "<random-token>"

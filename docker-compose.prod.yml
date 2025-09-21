@@ -9,4 +9,6 @@ services:
     environment:
       - NODE_ENV=production
       - USE_REACT=true
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
     restart: unless-stopped

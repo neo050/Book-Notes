@@ -10,16 +10,15 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - USE_REACT=true
-      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/booknotes
-      - REDIS_URL=redis://redis:6379
+      # Use external URLs when provided in .env; fallback to local services only if set there
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
       - METRICS_TOKEN=${METRICS_TOKEN}
     restart: unless-stopped
-    depends_on:
-      - postgres
-      - redis
 
   postgres:
     image: pgvector/pgvector:pg16
+    profiles: ["local"]
     environment:
       - POSTGRES_DB=booknotes
       - POSTGRES_USER=postgres
@@ -33,6 +32,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    profiles: ["local"]
     ports:
       - "6380:6379"
     volumes:
