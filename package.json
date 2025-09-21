@@ -8,7 +8,8 @@
     "test": "node --test --experimental-test-module-mocks",
     "start": "node index.js",
     "dev": "cross-env FIRESTORE_EMULATOR_HOST=127.0.0.1:9080 GCLOUD_PROJECT=book-notes-dev nodemon index.js",
-    "build:client": "npm --prefix client install --no-audit --no-fund --include=dev && npm --prefix client run build"
+    "build:client": "npm --prefix client install --no-audit --no-fund --include=dev && npm --prefix client run build",
+    "postinstall": "node scripts/render-postinstall.js"
   },
 	"repository": {
 		"type": "git",
