@@ -33,7 +33,7 @@ import { UpdateBookSchema } from './validation/schemas.js';
 
 export const app  = express();
 app.set('trust proxy', 1);
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 38796;
 let USE_REACT = process.env.USE_REACT !== 'false';
 
 
@@ -318,7 +318,7 @@ passport.use('local', new LocalStrategy(async (username, password, cb) => {
 
 
 /*────────────────────────── 9. Auth handlers ─────────────────────*/
-app.post('/login', csrfProtection,loginLimiter, (req, res, next) => {
+app.post('/login', csrfProtection,loginLimiter, async (req, res, next) => {
   passport.authenticate('local', (err, user) => {
     if (err || !user) { console.warn('auth.local.failed'); return res.redirect('/login'); }
     req.session.regenerate(e => {

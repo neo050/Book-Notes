@@ -1,21 +1,42 @@
 let csrfTokenCache = null;
+let csrfTokenPromise = null;
 
-export async function getCsrfToken() {
-  if (csrfTokenCache) return csrfTokenCache;
-  const res = await fetch('/api/csrf-token', { credentials: 'include' });
-  if (!res.ok) throw new Error('Failed to fetch CSRF token');
-  const { csrfToken } = await res.json();
-  csrfTokenCache = csrfToken;
-  return csrfToken;
+function invalidateCsrfToken() {
+  csrfTokenCache = null;
+  csrfTokenPromise = null;
 }
 
-export async function apiJson(path, { method = 'GET', body } = {}) {
+export async function getCsrfToken(force = false) {
+  if (force) invalidateCsrfToken();
+  if (csrfTokenCache) return csrfTokenCache;
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = (async () => {
+      try {
+        const res = await fetch('/api/csrf-token', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to fetch CSRF token');
+        const { csrfToken } = await res.json();
+        csrfTokenCache = csrfToken;
+        return csrfToken;
+      } catch (err) {
+        invalidateCsrfToken();
+        throw err;
+      } finally {
+        csrfTokenPromise = null;
+      }
+    })();
+  }
+  return csrfTokenPromise;
+}
+
+export async function apiJson(path, options = {}) {
+  const { method = 'GET', body, retryOnCsrf = true } = options;
   const headers = { 'Accept': 'application/json' };
+  const needsCsrf = method !== 'GET' && method !== 'HEAD';
   let payload;
-  if (method !== 'GET' && method !== 'HEAD') {
+  if (needsCsrf) {
     const token = await getCsrfToken();
     headers['Content-Type'] = 'application/json';
-    headers['x-csrf-token'] = token; // csurf accepts standard headers
+    headers['x-csrf-token'] = token;
     payload = body ? JSON.stringify(body) : undefined;
   }
   const res = await fetch(path, {
@@ -24,11 +45,15 @@ export async function apiJson(path, { method = 'GET', body } = {}) {
     body: payload,
     credentials: 'include',
   });
+  if (res.status === 403 && needsCsrf && retryOnCsrf) {
+    invalidateCsrfToken();
+    return apiJson(path, { ...options, retryOnCsrf: false });
+  }
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
+    if (res.status === 403 && needsCsrf) invalidateCsrfToken();
+    throw new Error(text || ('Request failed: ' + res.status));
   }
-  // Some endpoints may return empty
   const ct = res.headers.get('content-type') || '';
   return ct.includes('application/json') ? res.json() : null;
 }
@@ -45,7 +70,11 @@ export async function login(username, password) {
     body: form,
     credentials: 'include',
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    if (res.status === 403) invalidateCsrfToken();
+    throw new Error(await res.text());
+  }
+  invalidateCsrfToken();
   return res.json();
 }
 
@@ -61,7 +90,10 @@ export async function register(username, password) {
     body: form,
     credentials: 'include',
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    if (res.status === 403) invalidateCsrfToken();
+    throw new Error(await res.text());
+  }
+  invalidateCsrfToken();
   return res.json();
 }
-
